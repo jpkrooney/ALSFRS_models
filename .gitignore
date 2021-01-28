@@ -4,5 +4,6 @@
 Data
 local_temp_data
 .DS_store
-examine_results.html
-examine_results.pdf
+R/examine_results.html
+R/examine_results.pdf
+R/ALSFRS_data_prep.R
