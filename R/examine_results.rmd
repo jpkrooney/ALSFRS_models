@@ -1,0 +1,129 @@
+---
+title: "Examine_results"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tableone)
+library(brms)
+library(bayesplot)
+library(rstan)
+library(corrplot)
+
+cache_dir <- here::here("local_temp_data")
+
+# Load models
+fit_dims1 <- readRDS( paste0(cache_dir, "/ALSFRSdimensions1.rds") )
+fit_multv <- readRDS( paste0(cache_dir, "/ALSFRSmultivariate.rds") )
+fit_cratio <- readRDS( paste0(cache_dir, "/ALSFRScratio.rds") )
+fit_custom <- readRDS( paste0(cache_dir, "/ALSFRScustom.rds") )
+
+
+
+# Get VarCov matrices
+vcov_dims1 <- VarCorr(fit_dims1)
+vcov_multv <- VarCorr(fit_multv)
+vcov_cratio <- VarCorr(fit_cratio)
+vcov_custom <- VarCorr(fit_custom)
+
+
+```
+
+I tested the 4 model variants on real ALSFRS data. Here I summarise some of the fit statistics for each model in turn. In each case the same data was used in long or wide format as needed. The data had 834 individuals, with a total of 3,311 longitudinal timepoints of 12 questions each. All models were run across 4 chains on 4 separate cores with the default warm-up and sampling iterations.
+
+To recap the models were:
+- Model 1 - Multiple latent dimensions
+- Model 2 - Modeling questions separately - multivariate
+- Model 3 - Using continuation ratio
+- Model 4 - Using a custom family
+
+Each model had the following numbers of parameters:
+```{r, echo=FALSE}
+print(paste0("Model 1: ", length(parnames(fit_dims1))))
+print(paste0("Model 2: ", length(parnames(fit_multv))))
+print(paste0("Model 3: ",  length(parnames(fit_cratio))))
+print(paste0("Model 4: ", length(parnames(fit_custom))))
+```
+and the following numbers of divergences:
+```{r, echo=FALSE}
+print(paste0("Model 1: ", get_num_divergent(fit_dims1$fit)))
+print(paste0("Model 2: ", get_num_divergent(fit_multv$fit)))
+print(paste0("Model 3: ", get_num_divergent(fit_cratio$fit)))
+print(paste0("Model 4: ", get_num_divergent(fit_custom$fit)))
+```
+
+The times for warmup and sampling for each chain of the models were:
+```{r, echo=FALSE}
+print("Model 1:")
+get_elapsed_time(fit_dims1$fit)
+print("Model 2:")
+get_elapsed_time(fit_multv$fit)
+print("Model 3:")
+get_elapsed_time(fit_cratio$fit)
+print("Model 4:")
+get_elapsed_time(fit_custom$fit)
+```
+
+
+Model 1 correlation matrix
+```{r , echo=FALSE}
+format( vcov_dims1[[1]][[2]][, 1, ] , digits = 3)
+
+corrplot(vcov_dims1[[1]][[2]][, 1, ], type = "lower")
+
+
+
+
+```
+
+Model 2 correlation matrix
+```{r , echo=FALSE}
+format( vcov_multv[[1]][[2]][, 1, ] , digits = 3)
+
+corrplot(vcov_multv[[1]][[2]][, 1, ], , type = "lower")
+```
+
+Model 3 correlation matrix
+```{r , echo=FALSE}
+format( vcov_cratio[[1]][[2]][, 1, ] , digits = 3)
+
+corrplot(vcov_cratio[[1]][[2]][, 1, ], , type = "lower")
+```
+
+Model 4 correlation matrix
+```{r , echo=FALSE}
+format( vcov_custom[[1]][[2]][, 1, ] , digits = 3)
+
+corrplot(vcov_custom[[1]][[2]][, 1, ], , type = "lower")
+```
+
+
+```{r echo=FALSE, eval=FALSE}
+fixef(fit_dims1)
+```
+
+
+```{r echo=FALSE, eval=FALSE}
+fixef(fit_multv)
+```
+
+
+```{r echo=FALSE, eval=FALSE}
+fixef(fit_cratio)
+```
+
+
+```{r echo=FALSE, eval=FALSE}
+fixef(fit_custom)
+```
+
+
+
+
+
+
+
