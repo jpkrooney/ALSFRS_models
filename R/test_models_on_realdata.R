@@ -51,10 +51,14 @@ df_frs$Q12 <- df_frs$Q12 + 1
 frs_long <- df_frs %>%
     pivot_longer(starts_with("Q"), names_to = "question", values_to = "answer")
 
+# save both versions of data
+saveRDS(df_frs, "Data/long_format_wide.RDS")
+saveRDS(frs_long, "Data/long_format_long.RDS")
+
 # Fit first model
-fit_dimensions1 <- brm(answer ~ question + (0 + question  | ID),
+fit_dimensions1 <- brm(answer ~ question + alsfrs_dly_mnths + (0 + question  | ID),
                        family = cumulative("logit"), data = frs_long,
-                       file = paste0(cache_dir, "/ALSFRSdimensions1.rds"), cores=4)
+                       file = paste0(cache_dir, "/ALSFRSdimensions1_time.rds"), cores=4)
 fit_dimensions1
 
 vc <- VarCorr(fit_dimensions1)

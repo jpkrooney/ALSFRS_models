@@ -1,8 +1,8 @@
 ---
 title: "Examine_results"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -13,22 +13,38 @@ library(brms)
 library(bayesplot)
 library(rstan)
 library(corrplot)
+library(here)
 
-cache_dir <- here::here("local_temp_data")
+cache_dir <- here("local_temp_data")
+
+# Load data
+df_frs <- readRDS(here("Data/long_format_wide.RDS"))
+frs_long <- readRDS(here("Data/long_format_long.RDS"))
+
 
 # Load models
-fit_dims1 <- readRDS( paste0(cache_dir, "/ALSFRSdimensions1.rds") )
+fit_dims1 <- readRDS( paste0(cache_dir, "/ALSFRSdimensions1_time.rds") )
 fit_multv <- readRDS( paste0(cache_dir, "/ALSFRSmultivariate.rds") )
 fit_cratio <- readRDS( paste0(cache_dir, "/ALSFRScratio.rds") )
 fit_custom <- readRDS( paste0(cache_dir, "/ALSFRScustom.rds") )
 
 
+# Load correlation helper functions
+source(here("R/helpfns.R"))
 
 # Get VarCov matrices
-vcov_dims1 <- VarCorr(fit_dims1)
-vcov_multv <- VarCorr(fit_multv)
-vcov_cratio <- VarCorr(fit_cratio)
-vcov_custom <- VarCorr(fit_custom)
+#vcov_dims1 <- VarCorr(fit_dims1)
+#vcov_multv <- VarCorr(fit_multv)
+#vcov_cratio <- VarCorr(fit_cratio)
+#vcov_custom <- VarCorr(fit_custom)
+
+
+
+# Get correlations using helper function
+cor_dim1 <- predcor_dim1(frs_long, fit_dims1)
+cor_multv <- predcor_multv( fit_multv )
+cor_cratio <- predcor_cratio(frs_long, fit_cratio)
+cor_custom <- predcor_dim1(frs_long, fit_custom)
 
 
 ```
@@ -71,34 +87,30 @@ get_elapsed_time(fit_custom$fit)
 
 Model 1 correlation matrix
 ```{r , echo=FALSE}
-format( vcov_dims1[[1]][[2]][, 1, ] , digits = 3)
-
-corrplot(vcov_dims1[[1]][[2]][, 1, ], type = "lower")
-
-
-
+format( cor_dim1 , digits = 3)
+corrplot(cor_dim1, type = "lower")
 
 ```
 
 Model 2 correlation matrix
 ```{r , echo=FALSE}
-format( vcov_multv[[1]][[2]][, 1, ] , digits = 3)
+format( cor_multv , digits = 3)
 
-corrplot(vcov_multv[[1]][[2]][, 1, ], , type = "lower")
+corrplot( cor_multv, , type = "lower")
 ```
 
 Model 3 correlation matrix
 ```{r , echo=FALSE}
-format( vcov_cratio[[1]][[2]][, 1, ] , digits = 3)
+format( cor_cratio , digits = 3)
 
-corrplot(vcov_cratio[[1]][[2]][, 1, ], , type = "lower")
+corrplot(cor_cratio , type = "lower")
 ```
 
 Model 4 correlation matrix
 ```{r , echo=FALSE}
-format( vcov_custom[[1]][[2]][, 1, ] , digits = 3)
+format( cor_custom , digits = 3)
 
-corrplot(vcov_custom[[1]][[2]][, 1, ], , type = "lower")
+corrplot(cor_custom , type = "lower")
 ```
 
 
