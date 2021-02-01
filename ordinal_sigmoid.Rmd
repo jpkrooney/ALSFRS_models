@@ -1,0 +1,74 @@
+---
+title: "Ordinal models naturally create sigmoids"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+theme_set(cowplot::theme_cowplot()) #optional
+```
+
+
+```{r}
+simulate_and_plot_scale <- function(n_sims, n_questions, n_options, 
+                                    patient_speed_multipliers, 
+                                    noise_scale = 1) {
+  
+  question_data <- crossing(question_id = 1:n_questions, 
+                            threshold_id = 1:(n_options - 1), 
+                            sim = 1:n_sims) %>%
+    mutate(threshold = rt(n(), df = 3) * 10)
+  
+  sim_ranges <- question_data %>% 
+    group_by(sim) %>%
+    summarise(min_threshold = min(threshold),
+              max_threshold = max(threshold),
+              base_speed = min_threshold - max_threshold,
+              .groups = "drop")
+  
+  n_patients <- length(patient_speed_multipliers)
+  
+  patient_data <- data.frame(patient_id = factor(1:n_patients), 
+                             speed_multiplier = patient_speed_multipliers) %>%
+    crossing(sim = 1:n_sims) %>%
+    inner_join(sim_ranges, by = "sim") %>%
+    mutate(initial_point = rnorm(n(), max_threshold, 3)) %>%
+    crossing(time = seq(0,1, length.out = 10), question_id = 1:n_questions) %>%
+    mutate(position_raw = initial_point + base_speed * speed_multiplier * time, 
+              position_noise = position_raw + rlogis(n()) * noise_scale) %>%
+    inner_join(question_data, by = c("sim", "question_id")) %>%
+    group_by(patient_id, time, sim) %>%
+    summarise(score = sum(position_noise > threshold), 
+              #Add small constant per patient
+              score_jitter = score + as.integer(patient_id) / (n_patients * 3), 
+              .groups = "drop")
+  
+  patient_data %>% 
+    ggplot(aes(x = time, y = score_jitter, 
+               color = patient_id, group = patient_id)) + 
+    geom_line() + facet_wrap(~sim)
+}
+```
+
+```{r}
+speed_mults <-  c(0.4,0.6,0.8,0.9,1,1.1) #relative speeds of the progression per patient
+simulate_and_plot_scale(n_sims = 6, n_questions = 3, n_options = 5, patient_speed_multipliers = speed_mults, noise_scale = 0)
+simulate_and_plot_scale(n_sims = 6, n_questions = 3, n_options = 5, patient_speed_multipliers = speed_mults, noise_scale = 3)
+
+
+```
+
+
+```{r}
+simulate_and_plot_scale(n_sims = 6, n_questions = 12, n_options = 5, patient_speed_multipliers = speed_mults, noise_scale = 8)
+
+```
+
+
+```{r}
+
+  simulate_and_plot_scale(n_sims = 6, n_questions = 1, n_options = 49, patient_speed_multipliers = speed_mults, noise_scale = 3)
+
+```
+
+
