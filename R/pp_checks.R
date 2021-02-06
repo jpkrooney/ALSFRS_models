@@ -63,7 +63,7 @@ pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0
         names(fn_list) <- c(paste0("lower_|_", width), paste0("upper_|_", width ))
         fn_list[[]]
 
-        pred_df <- as.data.frame(t(cor_pred_to_use))
+        pred_df <- as.data.frame(t(cor_pred))
         pred_df <- dplyr::summarise(pred_df, dplyr::across(dplyr::everything(), .fns = fn_list, .names = "{.col}_|_{.fn}"))
         pred_df <- tidyr::pivot_longer(pred_df, dplyr::everything(), names_sep = "_\\|_", names_to = c("pair", "bound", ".width"), values_to = "value")
         pred_df <- tidyr::pivot_wider(pred_df, names_from = "bound", values_from = "value")
@@ -72,13 +72,14 @@ pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0
 
         all_pred_dfs[[g]] <- pred_df
 
-        all_actual_dfs[[g]] <- data.frame(pair = names(cor_actual_to_use), actual = cor_actual_to_use, group = group_names[g])
+        all_actual_dfs[[g]] <- data.frame(pair = names(cor_actual), actual = cor_actual, group = group_names[g])
     }
 
     pred_df <- do.call(rbind, all_pred_dfs)
     actual_df <- do.call(rbind, all_actual_dfs)
 
-    pp_plot <- ggplot(pred_df, aes(x = pair, ymin = lower, ymax = upper)) + ggdist::geom_interval(aes(y = fake_median)) +
+    pp_plot <- ggplot(pred_df, aes(x = pair, ymin = lower, ymax = upper)) +
+        ggdist::geom_interval(aes(y = fake_median)) +
         geom_point(aes(x = pair, y = actual), inherit.aes = FALSE, data = actual_df, shape = 18, size = 10, position = position_nudge(x = 0.1)) + ggdist::theme_ggdist() +
         scale_color_brewer("PP interval") + scale_y_continuous("Correlation")
 
