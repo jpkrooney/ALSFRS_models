@@ -52,13 +52,19 @@ pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0
         cor_actual <- as.numeric(cor_actual_matrix)[cors_to_use]
         names(cor_actual) <- cor_names_to_use
 
-        cor_pred_all <- apply(predicted[ , group == group_names[g], ], MARGIN = 1, FUN = cor)
+        cor_pred_all <- suppressWarnings(
+            apply(predicted[ , group == group_names[g], ], MARGIN = 1, FUN = cor)
+        )
+        if(any(is.na(cor_pred_all))) {
+            warning(paste0("Group = ", group_names[g], ": Some predicted correlations are NA, possibly because no within-group variability is predicted\n"))
+        }
 
         cor_pred <- cor_pred_all[cors_to_use, ]
         rownames(cor_pred) <- cor_names_to_use
 
-        fn_list <- lapply(c(paste0("~ quantile(.x, probs = ",  (1 - width) / 2, ")"),
-                            paste0("~ quantile(.x, probs = ", 1 - (1 - width) / 2, ")"))
+        # A bit of a hack to easily get multiple quantile summaries with summarise.
+        fn_list <- lapply(c(paste0("~ quantile(.x, probs = ",  (1 - width) / 2, ", na.rm = TRUE)"),
+                            paste0("~ quantile(.x, probs = ", 1 - (1 - width) / 2, ", na.rm = TRUE)"))
                           , as.formula)
         names(fn_list) <- c(paste0("lower_|_", width), paste0("upper_|_", width ))
         fn_list[[]]

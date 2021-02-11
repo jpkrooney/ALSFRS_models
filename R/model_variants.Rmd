@@ -6,6 +6,7 @@ output: html_document
 ```{r setup, message=FALSE, warning = FALSE, results = "hide"}
 library(brms)
 library(tidyverse)
+source(here::here("R", "pp_checks.R"))
 options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
 cache_dir <- here::here("local_temp_data")
 if(!dir.exists(cache_dir)) {
@@ -91,7 +92,7 @@ The closest possible thing is to have between-question correlations for a single
 (e.g. as patient-specific varying intercepts):
 
 ```{r}
-fit_dimensions1 <- brm(answer ~ question + (0 + question  | patient), family = cumulative("logit"), data = simple_test_long, refresh = 0, file = paste0(cache_dir, "/dimensions1.rds"))
+fit_dimensions1 <- brm(answer ~ question + (0 + question  | patient) + time_from_diagnosis, family = cumulative("logit"), data = simple_test_long, file = paste0(cache_dir, "/dimensions1.rds"), file_refit = "on_change")
 fit_dimensions1
 ```
 
@@ -133,6 +134,7 @@ fit_cratio
 ```{r}
 pred_cratio <- posterior_predict(fit_cratio)
 
+pp_check_cor_long(pred_cratio, simple_test_long, "answer", "question", "obs_id")
 pp_check_cor_long(pred_cratio, simple_test_long, "answer", "question", "obs_id", group = as.integer(simple_test_long$patient) < 4)
 
 ```
@@ -141,9 +143,24 @@ pp_check_cor_long(pred_cratio, simple_test_long, "answer", "question", "obs_id",
 The biggest advantage definitely is that we don't need any tweaks to `brms`. 
 This formulation also reframes the discussion about individual "dimensions" of progression - in the `cratio` model the coefficients act on the log-odds scale for progressing into the next stage (for the given question). There is no longer an underlying latent "progression", instead, there is "tendency to progress through a stage"... Not sure if this is actually a better way of thinking about the disease or a problematic assumption. Paul claims in his work that in most cases, you get the same inferences regardless of the choice of the ordinal model.
 
+## Using `thres`
+
+```{r}
+fit_thres <- brm(answer | thres(gr = question) ~ time_from_diagnosis + (1 | patient), family = cumulative("logit"), data = simple_test_long, file = paste0(cache_dir, "/cumulative_thresh.rds"), refresh = 0)
+fit_thres
+```
+
+```{r}
+pred_thres <- posterior_predict(fit_thres)
+
+pp_check_cor_long(pred_thres, simple_test_long, "answer", "question", "obs_id")
+pp_check_cor_long(pred_thres, simple_test_long, "answer", "question", "obs_id", group = as.integer(simple_test_long$patient) < 4)
+
+```
+
 ## Using a custom family
 
-Now why doesn't `brms` support the `cs` term for the `cumulative` family? Unlike `cratio` where the intercepts are independent and unconstrained, `cumulative` requires the intercepts to be ordered. It is not immediately clear how to make a predictor for an ordered vector and maintain the ordering constraint. What one may do is to look at the transformation Stan uses to represent ordered vectors (as described at https://mc-stan.org/docs/2_25/reference-manual/ordered-vector.html) and make predictors take effect on the _unconstrained_ variables. 
+Now why doesn't `brms` support the `cs` term for the `cumulative` family? Unlike `cratio` where the intercepts are independent and unconstrained, `cumulative` requires the intercepts to be ordered. It is not immediately clear how to make a predictor for an ordered vecxx tor and maintain the ordering constraint. What one may do is to look at the transformation Stan uses to represent ordered vectors (as described at https://mc-stan.org/docs/2_25/reference-manual/ordered-vector.html) and make predictors take effect on the _unconstrained_ variables. 
 
 This however creates a somewhat weird situation, because the first intercept is untransformed while all the other intercepts are on the log scale, so the effects on the first intercept work fundamentally differently from the others. But as long as we stick to categorical predictors and wide priors, this is probably not a huge problem - categorical predictors mean there is a different value for each predictor level anyway, so the scale is less important.
 
@@ -197,3 +214,4 @@ This approach gives us the same flexibility as the `cratio` approach, but we can
 # Things left out
 
 I didn't include how to use the "implied Dirichlet" prior for any of the models (as suggested in Mike's blog post), but I believe it should be possible if needed (especially to take care of questions where the full range of the answers is not present in the data)
+
