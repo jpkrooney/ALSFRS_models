@@ -1,5 +1,7 @@
 pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0.8, 0.9,0.95),
                                actual_point_size = 3) {
+
+    ##### Argument checks #####
     if(any(is.na(actual)) || any(is.na(predicted))) {
         stop("NAs in predicted/actual not supported (yet)")
     }
@@ -9,15 +11,18 @@ pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0
     n_samples <- dim(predicted)[1]
     n_obs <- dim(predicted)[2]
     n_questions <- dim(predicted)[3]
-    if(n_obs != dim(actual)[1] || n_questions != dim(actual)[2]) {
+    if(n_obs != dim(actual)[1]) {
         stop("Predicted has to be a samples x observations x questions array and actual
-             has to be observations x questions array")
+             has to be observations x questions array - number of OBSERVATIONS in model data and provided data differ.")
+    }
+    if(n_questions != dim(actual)[2]) {
+        stop("Predicted has to be a samples x observations x questions array and actual
+             has to be observations x questions array - number of QUESTIONS in model data and provided data differ.")
     }
 
     if(!is.null(group) && length(group) != n_obs) {
         stop("Group has to be NULL or the same size as number of observations")
     }
-
 
     if(is.null(group)) {
         group <- rep(1, n_obs)
@@ -26,6 +31,7 @@ pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0
         show_group <- TRUE
     }
 
+    ##### Check group names ####
     group_names <- unique(group)
     n_groups <- length(group_names)
 
@@ -35,13 +41,14 @@ pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0
         question_names <- colnames(actual)
     }
 
+    #### Build matrices ####
     # Building matrices of the same size as `cor_actual_matrix` and then converting them to vectors
     # To ensure that things match
     cor_names <- as.character(outer(question_names, question_names, FUN = paste, sep = "_"))
     cors_to_use <- as.logical(outer(question_names, question_names, FUN = "<"))
     cor_names_to_use <- cor_names[cors_to_use]
 
-    # Will store per-group summaries
+    ##### Will store per-group summaries ####
     all_pred_dfs <- list()
     all_actual_dfs <- list()
 
@@ -57,7 +64,8 @@ pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0
             apply(predicted[ , group == group_names[g], ], MARGIN = 1, FUN = cor)
         )
         if(any(is.na(cor_pred_all))) {
-            warning(paste0("Group = ", group_names[g], ": ", sum(is.na(cor_pred_all)), " predicted correlations are NA, possibly because no within-group variability is predicted\n"))
+            warning(paste0("Group = ", group_names[g], ": ", sum(is.na(cor_pred_all)),
+                           " predicted correlations are NA, possibly because no within-group variability is predicted\n"))
         }
 
         cor_pred <- cor_pred_all[cors_to_use, ]
@@ -113,11 +121,13 @@ pp_check_cor_long <- function(predicted, data, answer_col, question_col, obs_id_
     all_obs <- unique(data[[obs_id_col]])
     n_obs <- length(all_obs)
 
-    obs_map <- 1:n_obs
-    names(obs_map) <- all_obs
+    #obs_map <- 1:n_obs
+    #names(obs_map) <- all_obs
 
-    predicted_wide <- array(NA_real_, dim = c(n_samples, n_obs, n_questions), dimnames = list(NULL, NULL, all_questions))
-    actual_wide <- array(NA_real_, dim = c(n_obs, n_questions), dimnames = list(NULL, all_questions))
+    predicted_wide <- array(NA_real_, dim = c(n_samples, n_obs, n_questions),
+                            dimnames = list(NULL, NULL, all_questions))
+    actual_wide <- array(NA_real_, dim = c(n_obs, n_questions),
+                         dimnames = list(NULL, all_questions))
     group_wide <- NULL
 
     for(q_id in 1:n_questions) {
@@ -142,3 +152,54 @@ pp_check_cor_long <- function(predicted, data, answer_col, question_col, obs_id_
 
     pp_check_cor_array(predicted_wide, actual_wide, group_wide, actual_point_size = actual_point_size)
 }
+
+
+pp_check_cor_long2 <- function(model, answer_col, question_col, obs_id_col, timevar,
+                               groupvar=NULL, n_samples=4000, group = NULL, actual_point_size = 3) {
+    # Get needed data from arguments ####
+    data <- model$data
+    all_questions <- unique(data[[question_col]])
+    n_questions <- length(all_questions)
+    all_obs <- unique(data[[obs_id_col]])
+    n_obs <- length(all_obs)
+
+    # Make predictions ####
+    predictions <- posterior_predict(model, nsamples = n_samples)
+
+    # Create a list of datasets for each sample
+    post_datasets <- lapply(1:dim(predictions)[1], function(i) {
+        data.frame(data, pred = predictions[i, ])
+    })
+
+    # Reshape each datasets predictions from long to wide
+    preds_wide <- list()
+    for(i in 1:n_samples){
+        preds_wide[[i]] <- post_datasets[[i]] %>% pivot_wider(id_cols = c(obs_id_col, all_of(timevar)),
+                                       names_from = question_col,
+                                       values_from = c("pred"))
+    }
+    predicted_wide <- array(NA_real_, dim = c(n_samples, nrow(data)/n_questions, n_questions),
+                            dimnames = list(NULL, NULL, all_questions))
+    for(i in 1:n_samples){
+        predicted_wide[i, , ] <- as.matrix(preds_wide[[i]][, all_questions])
+    }
+
+    # Reshape just once for actual_wide
+    actual_wide <- post_datasets[[i]] %>% pivot_wider(id_cols = c(obs_id_col, all_of(timevar)),
+                                       names_from = question_col,
+                                       values_from = c(answer_col))
+
+    # Call the pp_check_cor_array function
+    pp_check_cor_array(predicted_wide, actual_wide[, all_questions], group=NULL,
+                       actual_point_size = actual_point_size)
+}
+
+
+
+
+
+
+
+
+
+
