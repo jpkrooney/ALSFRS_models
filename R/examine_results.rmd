@@ -5,7 +5,7 @@ output:
   pdf_document: default
 ---
 
-```{r setup, include=FALSE, cache=TRUE}
+```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(tableone)
@@ -65,7 +65,7 @@ Each model had the following numbers of parameters:
 ```{r numpars, echo=FALSE}
 print(paste0("Model 1: ", length(parnames(fit_dims1))))
 print(paste0("Model 2: ", length(parnames(fit_multv))))
-print(paste0("Model 3: ",  length(parnames(fit_cratio))))
+print(paste0("Model 3: ", length(parnames(fit_cratio))))
 print(paste0("Model 4: ", length(parnames(fit_custom))))
 ```
 and the following numbers of divergences:
@@ -106,7 +106,7 @@ Model 2 correlation matrix
 ```{r mod2cors, echo=FALSE}
 kable( cor_multv , digits = 2, table.attr = "style='width:75%;'")
 
-corrplot( cor_multv, , type = "lower")
+corrplot( cor_multv, type = "lower")
 
 pred_multivariate <- posterior_predict(fit_multv, nsamples = 1000)
 pp_check_cor_wide(pred_multivariate, df_frs[!is.na(df_frs$alsfrs_dly_mnths), ], questions)
@@ -135,9 +135,9 @@ kable( cor_custom , digits = 2, table.attr = "style='width:75%;'")
 
 corrplot(cor_custom , type = "lower")
 
-pp_check_cor_long2(model = fit_custom, answer_col = "answer", question_col = "question",
-                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
-                   group = NULL, actual_point_size = 3)
+#pp_check_cor_long2(model = fit_custom, answer_col = "answer", question_col = "question",
+#                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+#                   group = NULL, actual_point_size = 3)
 
 ```
 

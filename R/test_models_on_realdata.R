@@ -47,6 +47,24 @@ df_frs$Q10 <- df_frs$Q10 + 1
 df_frs$Q11 <- df_frs$Q11 + 1
 df_frs$Q12 <- df_frs$Q12 + 1
 
+# Add baseline variables of potential interest to df_frs
+df_frs$site <- df_ind[ match(df_frs$ID, df_ind$ID ), ]$simp_site
+df_frs$sex <- df_ind[ match(df_frs$ID, df_ind$ID ), ]$sex
+df_frs$age_dx <- df_ind[ match(df_frs$ID, df_ind$ID ), ]$age_dx
+df_frs$dx_delay <- df_ind[ match(df_frs$ID, df_ind$ID ), ]$dx_delay
+
+
+#############################################
+# Minimise the data size  for test purposes ####
+# Take 10% of individuals
+samp <- sample(df_ind$ID, size = nrow(df_ind)/ 10, replace = FALSE)
+df_frs <- df_frs[df_frs$ID %in% samp, ]
+# Will only use Q1 to Q6
+df_frs <- df_frs[ , !names(df_frs) %in% c("Q07", "Q08", "Q09", "Q10", "Q11", "Q12")]
+
+#############################################
+
+
 # make long version of data
 frs_long <- df_frs %>%
     pivot_longer(starts_with("Q"), names_to = "question", values_to = "answer")
@@ -137,6 +155,11 @@ fit_custom <- brm(bf(answer ~ 0 + alsfrs_dly_mnths  + (1 + question | ID),
 fit_custom
 
 
+# fit fifth model - threshold model
+fit_thresh <- brm(answer ~ alsfrs_dly_mnths + cs(question) + (1 + question | ID),
+                  family = cratio("logit"), data = frs_long,
+                  file = paste0(cache_dir, "/ALSFRSthresh.rds"), cores = 4)
+fit_thresh
 
 
 
