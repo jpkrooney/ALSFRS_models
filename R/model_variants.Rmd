@@ -153,7 +153,7 @@ fit_thres
 ```{r}
 pred_thres <- posterior_predict(fit_thres)
 
-pp_check_cor_long(pred_thres, simple_test_long, "answer", "question", "obs_id")
+pp_check_cor_long(pred_thres, simple_test_long, "answer", "question", "obs_id", actual_point_size = 10) 
 pp_check_cor_long(pred_thres, simple_test_long, "answer", "question", "obs_id", group = as.integer(simple_test_long$patient) < 4)
 
 ```

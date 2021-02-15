@@ -1,4 +1,5 @@
-pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0.8, 0.9,0.95)) {
+pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0.8, 0.9,0.95),
+                               actual_point_size = 3) {
     if(any(is.na(actual)) || any(is.na(predicted))) {
         stop("NAs in predicted/actual not supported (yet)")
     }
@@ -56,7 +57,7 @@ pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0
             apply(predicted[ , group == group_names[g], ], MARGIN = 1, FUN = cor)
         )
         if(any(is.na(cor_pred_all))) {
-            warning(paste0("Group = ", group_names[g], ": Some predicted correlations are NA, possibly because no within-group variability is predicted\n"))
+            warning(paste0("Group = ", group_names[g], ": ", sum(is.na(cor_pred_all)), " predicted correlations are NA, possibly because no within-group variability is predicted\n"))
         }
 
         cor_pred <- cor_pred_all[cors_to_use, ]
@@ -86,8 +87,9 @@ pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0
 
     pp_plot <- ggplot(pred_df, aes(x = pair, ymin = lower, ymax = upper)) +
         ggdist::geom_interval(aes(y = fake_median)) +
-        geom_point(aes(x = pair, y = actual), inherit.aes = FALSE, data = actual_df, shape = 18, size = 10, position = position_nudge(x = 0.1)) + ggdist::theme_ggdist() +
-        scale_color_brewer("PP interval") + scale_y_continuous("Correlation")
+        geom_point(aes(x = pair, y = actual), inherit.aes = FALSE, data = actual_df, shape = 18, size = actual_point_size, position = position_nudge(x = 0.1)) + ggdist::theme_ggdist() +
+        scale_color_brewer("PP interval") + scale_y_continuous("Correlation") +
+        theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 
     if(show_group) {
         pp_plot <- pp_plot + facet_wrap(~group)
@@ -97,12 +99,14 @@ pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0
 }
 
 
-pp_check_cor_wide <- function(predicted, data, answer_cols, group = NULL) {
+pp_check_cor_wide <- function(predicted, data, answer_cols, group = NULL,
+                              actual_point_size = 3) {
     actual <- data %>% select(all_of(answer_cols)) %>% as.matrix()
-    pp_check_cor_array(predicted, actual, group)
+    pp_check_cor_array(predicted, actual, group, actual_point_size = actual_point_size)
 }
 
-pp_check_cor_long <- function(predicted, data, answer_col, question_col, obs_id_col, group = NULL) {
+pp_check_cor_long <- function(predicted, data, answer_col, question_col, obs_id_col, group = NULL,
+                              actual_point_size = 3) {
     all_questions <- unique(data[[question_col]])
     n_questions <- length(all_questions)
     n_samples <- dim(predicted)[1]
@@ -120,7 +124,7 @@ pp_check_cor_long <- function(predicted, data, answer_col, question_col, obs_id_
         #q_data <- data[data[[question_col]] == all_questions[q_id],]
         q_indices_l <- data[[question_col]] == all_questions[q_id]
         if(!identical(data[[obs_id_col]][q_indices_l], all_obs)) {
-            stop("Need to implement reordering")
+            stop(paste0("Question '", all_questions[q_id] , "': Need to implement reordering"))
         }
         q_indices <- which(q_indices_l)
 
@@ -136,5 +140,5 @@ pp_check_cor_long <- function(predicted, data, answer_col, question_col, obs_id_
         }
     }
 
-    pp_check_cor_array(predicted_wide, actual_wide, group_wide)
+    pp_check_cor_array(predicted_wide, actual_wide, group_wide, actual_point_size = actual_point_size)
 }
