@@ -124,7 +124,7 @@ pp_check_cor_long <- function(predicted, data, answer_col, question_col, obs_id_
         #q_data <- data[data[[question_col]] == all_questions[q_id],]
         q_indices_l <- data[[question_col]] == all_questions[q_id]
         if(!identical(data[[obs_id_col]][q_indices_l], all_obs)) {
-            stop("Need to implement reordering")
+            stop(paste0("Question '", all_questions[q_id] , "': Need to implement reordering"))
         }
         q_indices <- which(q_indices_l)
 
