@@ -32,6 +32,7 @@ fit_custom <- readRDS( paste0(cache_dir, "/ALSFRScustom.rds") )
 
 # Load correlation helper functions
 source(here("R/helpfns.R"))
+source(here("R/pp_checks.R"))
 
 # Get VarCov matrices
 #vcov_dims1 <- VarCorr(fit_dims1)
@@ -39,7 +40,9 @@ source(here("R/helpfns.R"))
 #vcov_cratio <- VarCorr(fit_cratio)
 #vcov_custom <- VarCorr(fit_custom)
 
-
+questions <- c("Q01", "Q02", "Q03", "Q04",
+               "Q05", "Q06", "Q07", "Q08",
+               "Q09", "Q10", "Q11", "Q12")
 
 # Get correlations using helper function
 cor_dim1 <- predcor_dim1(frs_long, fit_dims1)
@@ -59,14 +62,14 @@ To recap the models were:
 - Model 4 - Using a custom family
 
 Each model had the following numbers of parameters:
-```{r, echo=FALSE}
+```{r numpars, echo=FALSE}
 print(paste0("Model 1: ", length(parnames(fit_dims1))))
 print(paste0("Model 2: ", length(parnames(fit_multv))))
 print(paste0("Model 3: ",  length(parnames(fit_cratio))))
 print(paste0("Model 4: ", length(parnames(fit_custom))))
 ```
 and the following numbers of divergences:
-```{r, echo=FALSE}
+```{r divs, echo=FALSE}
 print(paste0("Model 1: ", get_num_divergent(fit_dims1$fit)))
 print(paste0("Model 2: ", get_num_divergent(fit_multv$fit)))
 print(paste0("Model 3: ", get_num_divergent(fit_cratio$fit)))
@@ -74,7 +77,7 @@ print(paste0("Model 4: ", get_num_divergent(fit_custom$fit)))
 ```
 
 The times for warmup and sampling for each chain of the models were:
-```{r, echo=FALSE}
+```{r times, echo=FALSE}
 print("Model 1:")
 get_elapsed_time(fit_dims1$fit)
 print("Model 2:")
@@ -87,31 +90,55 @@ get_elapsed_time(fit_custom$fit)
 
 
 Model 1 correlation matrix
-```{r , echo=FALSE}
+```{r mod1cors, echo=FALSE}
 kable( cor_dim1 , digits = 2, table.attr = "style='width:75%;'")
 corrplot(cor_dim1, type = "lower")
+
+#pred_dims1 <- posterior_predict(fit_dims1)
+
+pp_check_cor_long2(model = fit_dims1, answer_col = "answer", question_col = "question",
+                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+                   group = NULL, actual_point_size = 3)
 
 ```
 
 Model 2 correlation matrix
-```{r , echo=FALSE}
+```{r mod2cors, echo=FALSE}
 kable( cor_multv , digits = 2, table.attr = "style='width:75%;'")
 
 corrplot( cor_multv, , type = "lower")
+
+pred_multivariate <- posterior_predict(fit_multv, nsamples = 1000)
+pp_check_cor_wide(pred_multivariate, df_frs[!is.na(df_frs$alsfrs_dly_mnths), ], questions)
+#pp_check_cor_wide(pred_multivariate, simple_test, paste0("q", 1:3), group = rep(1:2, length.out = 21))
+
+
+
+
 ```
 
 Model 3 correlation matrix
-```{r , echo=FALSE}
+```{r mod3cors, echo=FALSE}
 kable( cor_cratio , digits = 2, table.attr = "style='width:75%;'")
 
 corrplot(cor_cratio , type = "lower")
+
+pp_check_cor_long2(model = fit_cratio, answer_col = "answer", question_col = "question",
+                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+                   group = NULL, actual_point_size = 3)
+
 ```
 
 Model 4 correlation matrix
-```{r , echo=FALSE}
+```{r mod4cors, echo=FALSE}
 kable( cor_custom , digits = 2, table.attr = "style='width:75%;'") 
 
 corrplot(cor_custom , type = "lower")
+
+pp_check_cor_long2(model = fit_custom, answer_col = "answer", question_col = "question",
+                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+                   group = NULL, actual_point_size = 3)
+
 ```
 
 
