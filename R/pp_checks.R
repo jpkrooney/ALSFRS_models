@@ -154,14 +154,21 @@ pp_check_cor_long <- function(predicted, data, answer_col, question_col, obs_id_
 }
 
 
-pp_check_cor_long2 <- function(model, answer_col, question_col, obs_id_col, timevar,
-                               groupvar=NULL, n_samples=4000, group = NULL, actual_point_size = 3) {
+pp_check_cor_long2 <- function(model, data = model$data, answer_col, question_col,
+                               obs_id_col, timevar, groupvar=NULL, n_samples=4000,
+                               actual_point_size = 3) {
     # Get needed data from arguments ####
-    data <- model$data
+    #data <- model$data
     all_questions <- unique(data[[question_col]])
     n_questions <- length(all_questions)
     all_obs <- unique(data[[obs_id_col]])
     n_obs <- length(all_obs)
+
+    if( !is.null(groupvar) ){
+        if( !groupvar %in% names(data) ){
+            stop("specified group variable is not in the data")
+        }
+    }
 
     # Make predictions ####
     predictions <- posterior_predict(model, nsamples = n_samples)
@@ -185,12 +192,23 @@ pp_check_cor_long2 <- function(model, answer_col, question_col, obs_id_col, time
     }
 
     # Reshape just once for actual_wide
-    actual_wide <- post_datasets[[i]] %>% pivot_wider(id_cols = c(obs_id_col, all_of(timevar)),
+    if( is.null(groupvar) ){
+        actual_wide <- post_datasets[[i]] %>% pivot_wider(id_cols = c(obs_id_col, all_of(timevar)),
                                        names_from = question_col,
-                                       values_from = c(answer_col))
+                                       values_from = c(answer_col)) %>%
+            data.frame()
+        group <- NULL
+    } else {
+        actual_wide <- post_datasets[[i]] %>% pivot_wider(id_cols = c(obs_id_col, all_of(timevar),
+                                                                      all_of(groupvar)),
+                                                          names_from = question_col,
+                                                          values_from = c(answer_col)) %>%
+            data.frame()
+        group <- as.character(actual_wide[, groupvar])
+    }
 
     # Call the pp_check_cor_array function
-    pp_check_cor_array(predicted_wide, actual_wide[, all_questions], group=NULL,
+    pp_check_cor_array(predicted_wide, actual_wide[, all_questions], group=group,
                        actual_point_size = actual_point_size)
 }
 

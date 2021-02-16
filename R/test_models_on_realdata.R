@@ -83,10 +83,10 @@ vc <- VarCorr(fit_dimensions1)
 corrs <- vc[[1]][[2]]
 
 
-mcmc_trace(fit_dimensions1, pars = c("cor_ID__questionALSFRS_Q1__questionALSFRS_Q11",
+mcmc_trace(fit_dimensions1, pars = c("cor_ID__questionALSFRS_Q1__questionALSFRS_Q4",
                               "b_Intercept[1]",
-                              "cor_ID__questionALSFRS_Q6__questionALSFRS_Q7",
-                              "b_questionALSFRS_Q4") )
+                              "cor_ID__questionALSFRS_Q6__questionALSFRS_Q5",
+                              "b_questionALSFRS_Q3") )
 
 # Posterior predictive check
 mod1_pp1 <- pp_check(fit_dimensions1, nsamples = 200)
@@ -97,12 +97,21 @@ print(mod1_pp1)
 
 # fit second model
 fit_multivariate <- brm(
-    mvbind(Q01, Q02, Q03, Q04, Q05, Q06,
-           Q07, Q08, Q09, Q10, Q11, Q12) ~ 1 + alsfrs_dly_mnths + (1 | p | ID),
+    mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (1 | p | ID),
                         data = df_frs,
                         family = cumulative("logit"),
                         file = paste0(cache_dir, "/ALSFRSmultivariate.rds"), cores = 4)
 fit_multivariate
+
+
+# fit multivariate model with no correlation term
+fit_mult_nocor <- brm(
+  mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths,
+  data = df_frs,
+  family = cumulative("logit"),
+  file = paste0(cache_dir, "/ALSFRSmult_nocor.rds"), cores = 4)
+fit_mult_nocor
+
 
 
 

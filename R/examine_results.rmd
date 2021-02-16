@@ -24,10 +24,12 @@ frs_long <- readRDS(here("Data/long_format_long.RDS"))
 
 
 # Load models
+fit_uncor <- readRDS( paste0(cache_dir, "/ALSFRSmult_nocor.rds") )
 fit_dims1 <- readRDS( paste0(cache_dir, "/ALSFRSdimensions1_time.rds") )
 fit_multv <- readRDS( paste0(cache_dir, "/ALSFRSmultivariate.rds") )
 fit_cratio <- readRDS( paste0(cache_dir, "/ALSFRScratio.rds") )
 fit_custom <- readRDS( paste0(cache_dir, "/ALSFRScustom.rds") )
+fit_thresh <- readRDS( paste0(cache_dir, "/ALSFRSthresh.rds") )
 
 
 # Load correlation helper functions
@@ -41,43 +43,53 @@ source(here("R/pp_checks.R"))
 #vcov_custom <- VarCorr(fit_custom)
 
 questions <- c("Q01", "Q02", "Q03", "Q04",
-               "Q05", "Q06", "Q07", "Q08",
-               "Q09", "Q10", "Q11", "Q12")
+               "Q05", "Q06")
 
 # Get correlations using helper function
+cor_uncor <- predcor_multv(fit_uncor)
 cor_dim1 <- predcor_dim1(frs_long, fit_dims1)
 cor_multv <- predcor_multv( fit_multv )
 cor_cratio <- predcor_cratio(frs_long, fit_cratio)
 cor_custom <- predcor_dim1(frs_long, fit_custom)
-
+cor_thresh <- predcor_cratio(frs_long, fit_thresh)
 
 ```
 
 I tested the 4 model variants on real ALSFRS data. Here I summarise some of the fit statistics for each model in turn. In each case the same data was used in long or wide format as needed. The data had 834 individuals, with a total of 3,311 longitudinal timepoints of 12 questions each. All models were run across 4 chains on 4 separate cores with the default warm-up and sampling iterations.
 
 To recap the models were:
+- Model 0 - multivariate without correlation term
 - Model 1 - Multiple latent dimensions
 - Model 2 - Modeling questions separately - multivariate
 - Model 3 - Using continuation ratio
 - Model 4 - Using a custom family
+- Model 5 - Threshold model
 
 Each model had the following numbers of parameters:
 ```{r numpars, echo=FALSE}
-print(paste0("Model 1: ", length(parnames(fit_dims1))))
-print(paste0("Model 2: ", length(parnames(fit_multv))))
-print(paste0("Model 3: ", length(parnames(fit_cratio))))
-print(paste0("Model 4: ", length(parnames(fit_custom))))
+print(paste0("Model 0 (nocor term): ", length(parnames(fit_uncor))))
+print(paste0("Model 1 (Latent dims): ", length(parnames(fit_dims1))))
+print(paste0("Model 2 (multivariate): ", length(parnames(fit_multv))))
+print(paste0("Model 3 (cratio): ", length(parnames(fit_cratio))))
+print(paste0("Model 4 (custom): ", length(parnames(fit_custom))))
+print(paste0("Model 5 (threshold): ", length(parnames(fit_thresh))))
+
 ```
 and the following numbers of divergences:
 ```{r divs, echo=FALSE}
+print(paste0("Model 0: ", get_num_divergent(fit_uncor$fit)))
 print(paste0("Model 1: ", get_num_divergent(fit_dims1$fit)))
 print(paste0("Model 2: ", get_num_divergent(fit_multv$fit)))
 print(paste0("Model 3: ", get_num_divergent(fit_cratio$fit)))
 print(paste0("Model 4: ", get_num_divergent(fit_custom$fit)))
+print(paste0("Model 5: ", get_num_divergent(fit_thresh$fit)))
+
 ```
 
 The times for warmup and sampling for each chain of the models were:
 ```{r times, echo=FALSE}
+print("Model 0:")
+get_elapsed_time(fit_uncor$fit)
 print("Model 1:")
 get_elapsed_time(fit_dims1$fit)
 print("Model 2:")
@@ -86,10 +98,27 @@ print("Model 3:")
 get_elapsed_time(fit_cratio$fit)
 print("Model 4:")
 get_elapsed_time(fit_custom$fit)
+print("Model 5:")
+get_elapsed_time(fit_thresh$fit)
 ```
 
 
-Model 1 correlation matrix
+## Model 0 correlation matrix
+```{r mod0, echo=FALSE}
+kable( cor_uncor , digits = 2, table.attr = "style='width:75%;'")
+corrplot(cor_uncor, type = "lower")
+
+#pred_dims1 <- posterior_predict(fit_dims1)
+
+pred_multiuncor <- posterior_predict(fit_uncor, nsamples = 1000)
+pp_check_cor_wide(pred_multiuncor, df_frs, questions)
+pp_check_cor_wide(pred_multiuncor, df_frs, questions, group = df_frs$site)
+
+
+```
+
+
+## Model 1 Latent dimensions
 ```{r mod1cors, echo=FALSE}
 kable( cor_dim1 , digits = 2, table.attr = "style='width:75%;'")
 corrplot(cor_dim1, type = "lower")
@@ -100,24 +129,30 @@ pp_check_cor_long2(model = fit_dims1, answer_col = "answer", question_col = "que
                    obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
                    group = NULL, actual_point_size = 3)
 
+pp_check_cor_long2(model = fit_dims1, data = frs_long, answer_col = "answer", question_col = "question",
+                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+                   groupvar = "site", actual_point_size = 3)
+
+
 ```
 
-Model 2 correlation matrix
+## Model 2 multivariate
 ```{r mod2cors, echo=FALSE}
 kable( cor_multv , digits = 2, table.attr = "style='width:75%;'")
 
 corrplot( cor_multv, type = "lower")
 
 pred_multivariate <- posterior_predict(fit_multv, nsamples = 1000)
-pp_check_cor_wide(pred_multivariate, df_frs[!is.na(df_frs$alsfrs_dly_mnths), ], questions)
-#pp_check_cor_wide(pred_multivariate, simple_test, paste0("q", 1:3), group = rep(1:2, length.out = 21))
+pp_check_cor_wide(pred_multivariate, df_frs, questions)
+
+pp_check_cor_wide(pred_multivariate, df_frs, questions, group = df_frs$site)
 
 
 
 
 ```
 
-Model 3 correlation matrix
+## Model 3 cratio
 ```{r mod3cors, echo=FALSE}
 kable( cor_cratio , digits = 2, table.attr = "style='width:75%;'")
 
@@ -127,9 +162,13 @@ pp_check_cor_long2(model = fit_cratio, answer_col = "answer", question_col = "qu
                    obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
                    group = NULL, actual_point_size = 3)
 
+pp_check_cor_long2(model = fit_cratio, data = frs_long, answer_col = "answer", question_col = "question",
+                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+                   groupvar = "site", actual_point_size = 3)
+
 ```
 
-Model 4 correlation matrix
+## Model 4 custom
 ```{r mod4cors, echo=FALSE}
 kable( cor_custom , digits = 2, table.attr = "style='width:75%;'") 
 
@@ -140,6 +179,26 @@ corrplot(cor_custom , type = "lower")
 #                   group = NULL, actual_point_size = 3)
 
 ```
+
+
+## Model 5 threshold model
+```{r mod5cors, echo=FALSE}
+kable( cor_thresh , digits = 2, table.attr = "style='width:75%;'") 
+
+corrplot(cor_thresh , type = "lower")
+
+pp_check_cor_long2(model = fit_thresh, answer_col = "answer", question_col = "question",
+                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+                   group = NULL, actual_point_size = 3)
+
+pp_check_cor_long2(model = fit_thresh, data = frs_long, answer_col = "answer", question_col = "question",
+                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+                   groupvar = "site", actual_point_size = 3)
+
+
+```
+
+
 
 
 ```{r echo=FALSE, eval=FALSE}
