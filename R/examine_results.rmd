@@ -46,12 +46,12 @@ questions <- c("Q01", "Q02", "Q03", "Q04",
                "Q05", "Q06")
 
 # Get correlations using helper function
-cor_uncor <- predcor_multv(fit_uncor)
-cor_dim1 <- predcor_dim1(frs_long, fit_dims1)
-cor_multv <- predcor_multv( fit_multv )
-cor_cratio <- predcor_cratio(frs_long, fit_cratio)
-cor_custom <- predcor_dim1(frs_long, fit_custom)
-cor_thresh <- predcor_cratio(frs_long, fit_thresh)
+cor_uncor <- predcor_multv(fit_uncor, timevar = "time_first")
+cor_dim1 <- predcor_dim1(frs_long, fit_dims1, timevar = "time_first")
+cor_multv <- predcor_multv( fit_multv, timevar = "time_first" )
+cor_cratio <- predcor_cratio(frs_long, fit_cratio, timevar = "time_first" )
+cor_custom <- predcor_dim1(frs_long, fit_custom, timevar = "time_first")
+cor_thresh <- predcor_cratio(frs_long, fit_thresh, timevar = "time_first" )
 
 ```
 
@@ -108,8 +108,6 @@ get_elapsed_time(fit_thresh$fit)
 kable( cor_uncor , digits = 2, table.attr = "style='width:75%;'")
 corrplot(cor_uncor, type = "lower")
 
-#pred_dims1 <- posterior_predict(fit_dims1)
-
 pred_multiuncor <- posterior_predict(fit_uncor, nsamples = 1000)
 pp_check_cor_wide(pred_multiuncor, df_frs, questions)
 pp_check_cor_wide(pred_multiuncor, df_frs, questions, group = df_frs$site)
@@ -123,14 +121,12 @@ pp_check_cor_wide(pred_multiuncor, df_frs, questions, group = df_frs$site)
 kable( cor_dim1 , digits = 2, table.attr = "style='width:75%;'")
 corrplot(cor_dim1, type = "lower")
 
-#pred_dims1 <- posterior_predict(fit_dims1)
-
 pp_check_cor_long2(model = fit_dims1, answer_col = "answer", question_col = "question",
-                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+                   obs_id_col = "ID", timevar = "time_first", n_samples=1000,
                    group = NULL, actual_point_size = 3)
 
 pp_check_cor_long2(model = fit_dims1, data = frs_long, answer_col = "answer", question_col = "question",
-                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+                   obs_id_col = "ID", timevar = "time_first", n_samples=1000,
                    groupvar = "site", actual_point_size = 3)
 
 
@@ -139,7 +135,6 @@ pp_check_cor_long2(model = fit_dims1, data = frs_long, answer_col = "answer", qu
 ## Model 2 multivariate
 ```{r mod2cors, echo=FALSE}
 kable( cor_multv , digits = 2, table.attr = "style='width:75%;'")
-
 corrplot( cor_multv, type = "lower")
 
 pred_multivariate <- posterior_predict(fit_multv, nsamples = 1000)
@@ -155,15 +150,14 @@ pp_check_cor_wide(pred_multivariate, df_frs, questions, group = df_frs$site)
 ## Model 3 cratio
 ```{r mod3cors, echo=FALSE}
 kable( cor_cratio , digits = 2, table.attr = "style='width:75%;'")
-
 corrplot(cor_cratio , type = "lower")
 
 pp_check_cor_long2(model = fit_cratio, answer_col = "answer", question_col = "question",
-                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+                   obs_id_col = "ID", timevar = "time_first", n_samples=1000,
                    group = NULL, actual_point_size = 3)
 
 pp_check_cor_long2(model = fit_cratio, data = frs_long, answer_col = "answer", question_col = "question",
-                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+                   obs_id_col = "ID", timevar = "time_first", n_samples=1000,
                    groupvar = "site", actual_point_size = 3)
 
 ```
@@ -171,11 +165,10 @@ pp_check_cor_long2(model = fit_cratio, data = frs_long, answer_col = "answer", q
 ## Model 4 custom
 ```{r mod4cors, echo=FALSE}
 kable( cor_custom , digits = 2, table.attr = "style='width:75%;'") 
-
 corrplot(cor_custom , type = "lower")
 
 #pp_check_cor_long2(model = fit_custom, answer_col = "answer", question_col = "question",
-#                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+#                   obs_id_col = "ID", timevar = "time_first", n_samples=1000,
 #                   group = NULL, actual_point_size = 3)
 
 ```
@@ -184,15 +177,14 @@ corrplot(cor_custom , type = "lower")
 ## Model 5 threshold model
 ```{r mod5cors, echo=FALSE}
 kable( cor_thresh , digits = 2, table.attr = "style='width:75%;'") 
-
 corrplot(cor_thresh , type = "lower")
 
 pp_check_cor_long2(model = fit_thresh, answer_col = "answer", question_col = "question",
-                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+                   obs_id_col = "ID", timevar = "time_first", n_samples=1000,
                    group = NULL, actual_point_size = 3)
 
 pp_check_cor_long2(model = fit_thresh, data = frs_long, answer_col = "answer", question_col = "question",
-                   obs_id_col = "ID", timevar = "alsfrs_dly_mnths", n_samples=1000,
+                   obs_id_col = "ID", timevar = "time_first", n_samples=1000,
                    groupvar = "site", actual_point_size = 3)
 
 
