@@ -47,6 +47,24 @@ df_frs$Q10 <- df_frs$Q10 + 1
 df_frs$Q11 <- df_frs$Q11 + 1
 df_frs$Q12 <- df_frs$Q12 + 1
 
+# Add baseline variables of potential interest to df_frs
+df_frs$site <- df_ind[ match(df_frs$ID, df_ind$ID ), ]$simp_site
+df_frs$sex <- df_ind[ match(df_frs$ID, df_ind$ID ), ]$sex
+df_frs$age_dx <- df_ind[ match(df_frs$ID, df_ind$ID ), ]$age_dx
+df_frs$dx_delay <- df_ind[ match(df_frs$ID, df_ind$ID ), ]$dx_delay
+
+
+#############################################
+# Minimise the data size  for test purposes ####
+# Take 10% of individuals
+samp <- sample(df_ind$ID, size = nrow(df_ind)/ 10, replace = FALSE)
+df_frs <- df_frs[df_frs$ID %in% samp, ]
+# Will only use Q1 to Q6
+df_frs <- df_frs[ , !names(df_frs) %in% c("Q07", "Q08", "Q09", "Q10", "Q11", "Q12")]
+
+#############################################
+
+
 # make long version of data
 frs_long <- df_frs %>%
     pivot_longer(starts_with("Q"), names_to = "question", values_to = "answer")
@@ -65,10 +83,10 @@ vc <- VarCorr(fit_dimensions1)
 corrs <- vc[[1]][[2]]
 
 
-mcmc_trace(fit_dimensions1, pars = c("cor_ID__questionALSFRS_Q1__questionALSFRS_Q11",
+mcmc_trace(fit_dimensions1, pars = c("cor_ID__questionALSFRS_Q1__questionALSFRS_Q4",
                               "b_Intercept[1]",
-                              "cor_ID__questionALSFRS_Q6__questionALSFRS_Q7",
-                              "b_questionALSFRS_Q4") )
+                              "cor_ID__questionALSFRS_Q6__questionALSFRS_Q5",
+                              "b_questionALSFRS_Q3") )
 
 # Posterior predictive check
 mod1_pp1 <- pp_check(fit_dimensions1, nsamples = 200)
@@ -79,12 +97,21 @@ print(mod1_pp1)
 
 # fit second model
 fit_multivariate <- brm(
-    mvbind(Q01, Q02, Q03, Q04, Q05, Q06,
-           Q07, Q08, Q09, Q10, Q11, Q12) ~ 1 + alsfrs_dly_mnths + (1 | p | ID),
+    mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (1 | p | ID),
                         data = df_frs,
                         family = cumulative("logit"),
                         file = paste0(cache_dir, "/ALSFRSmultivariate.rds"), cores = 4)
 fit_multivariate
+
+
+# fit multivariate model with no correlation term
+fit_mult_nocor <- brm(
+  mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths,
+  data = df_frs,
+  family = cumulative("logit"),
+  file = paste0(cache_dir, "/ALSFRSmult_nocor.rds"), cores = 4)
+fit_mult_nocor
+
 
 
 
@@ -137,6 +164,11 @@ fit_custom <- brm(bf(answer ~ 0 + alsfrs_dly_mnths  + (1 + question | ID),
 fit_custom
 
 
+# fit fifth model - threshold model
+fit_thresh <- brm(answer ~ alsfrs_dly_mnths + cs(question) + (1 + question | ID),
+                  family = cratio("logit"), data = frs_long,
+                  file = paste0(cache_dir, "/ALSFRSthresh.rds"), cores = 4)
+fit_thresh
 
 
 
