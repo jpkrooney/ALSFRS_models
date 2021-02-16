@@ -53,6 +53,11 @@ df_frs$sex <- df_ind[ match(df_frs$ID, df_ind$ID ), ]$sex
 df_frs$age_dx <- df_ind[ match(df_frs$ID, df_ind$ID ), ]$age_dx
 df_frs$dx_delay <- df_ind[ match(df_frs$ID, df_ind$ID ), ]$dx_delay
 
+# Define a time variable relative to first ALSFRS variable
+firsts <- df_frs[ df_frs$First %in% c("First", "First & Final") ,]
+df_frs$t_first <- firsts[ match(df_frs$ID, firsts$ID), ]$alsfrs_dly_mnths
+df_frs$time_first <- df_frs$alsfrs_dly_mnths - df_frs$t_first
+
 
 #############################################
 # Minimise the data size  for test purposes ####
@@ -74,7 +79,7 @@ saveRDS(df_frs, "Data/long_format_wide.RDS")
 saveRDS(frs_long, "Data/long_format_long.RDS")
 
 # Fit first model
-fit_dimensions1 <- brm(answer ~ question + alsfrs_dly_mnths + (0 + question  | ID),
+fit_dimensions1 <- brm(answer ~ question + time_first + (0 + question  | ID),
                        family = cumulative("logit"), data = frs_long,
                        file = paste0(cache_dir, "/ALSFRSdimensions1_time.rds"), cores=4)
 fit_dimensions1
@@ -97,7 +102,7 @@ print(mod1_pp1)
 
 # fit second model
 fit_multivariate <- brm(
-    mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (1 | p | ID),
+    mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + time_first + (1 | p | ID),
                         data = df_frs,
                         family = cumulative("logit"),
                         file = paste0(cache_dir, "/ALSFRSmultivariate.rds"), cores = 4)
@@ -106,7 +111,7 @@ fit_multivariate
 
 # fit multivariate model with no correlation term
 fit_mult_nocor <- brm(
-  mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths,
+  mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + time_first,
   data = df_frs,
   family = cumulative("logit"),
   file = paste0(cache_dir, "/ALSFRSmult_nocor.rds"), cores = 4)
@@ -115,7 +120,7 @@ fit_mult_nocor
 
 
 # fit third model
-fit_cratio <- brm(answer ~ alsfrs_dly_mnths + cs(question) + (1 + question | ID),
+fit_cratio <- brm(answer ~ time_first + cs(question) + (1 + question | ID),
                   family = cratio("logit"), data = frs_long,
                   file = paste0(cache_dir, "/ALSFRScratio.rds"), cores = 4)
 fit_cratio
@@ -148,7 +153,7 @@ prior_custom <-  c(set_prior("student_t(3, 0, 2.5)", class = "b", dpar = "thresh
 )
 
 
-fit_custom <- brm(bf(answer ~ 0 + alsfrs_dly_mnths  + (1 + question | ID),
+fit_custom <- brm(bf(answer ~ 0 + time_first  + (1 + question | ID),
                      threshA ~ 0 + Intercept + question, # Avoiding centering of the intercept
                      widthB  ~ 0 + Intercept + question,
                      widthC  ~ 0 + Intercept + question,
@@ -163,7 +168,7 @@ fit_custom
 
 
 # fit fifth model - threshold model
-fit_thresh <- brm(answer ~ alsfrs_dly_mnths + cs(question) + (1 + question | ID),
+fit_thresh <- brm(answer ~ time_first + cs(question) + (1 + question | ID),
                   family = cratio("logit"), data = frs_long,
                   file = paste0(cache_dir, "/ALSFRSthresh.rds"), cores = 4)
 fit_thresh

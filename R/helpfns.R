@@ -1,12 +1,13 @@
 # define helper functions to extract correlations
 # helper functions
-predcor_dim1 <- function( df_long, fitobj, times = 6:36, nsamp = 2000){
+predcor_dim1 <- function( df_long, fitobj, timevar, times = 6:36, nsamp = 2000){
 
     all_questions <- sort(unique(df_long$question))
     n_reps <- 100
 
     new_data <- crossing(ID = paste0("new_patient", 1:n_reps),
-                         question = all_questions, alsfrs_dly_mnths = times)
+                         question = all_questions, time = times)
+    new_data <- new_data %>% rename(!!timevar := "time")
     # get linear predictions
     linpreds <- posterior_linpred(fitobj,
                                   newdata = new_data,
@@ -28,10 +29,11 @@ predcor_dim1 <- function( df_long, fitobj, times = 6:36, nsamp = 2000){
     apply(per_sample_cor, MARGIN = c(2,3), FUN = mean)
 }
 
-predcor_multv <- function( fitobj, times = 6:36, nsamp = 2000){
+predcor_multv <- function( fitobj, timevar, times = 6:36, nsamp = 2000){
 
     n_reps <- 100
-    new_data <- crossing(ID = paste0("new_patient", 1:n_reps), alsfrs_dly_mnths = times)
+    new_data <- crossing(ID = paste0("new_patient", 1:n_reps), time = times)
+    new_data <- new_data %>% rename(!!timevar := "time")
 
     # get linear predictions
     linpreds <- posterior_linpred(fitobj,
@@ -51,13 +53,15 @@ predcor_multv <- function( fitobj, times = 6:36, nsamp = 2000){
 }
 
 
-predcor_cratio<- function( df_long, fitobj, times = 6:36, nsamp = 2000){
+predcor_cratio<- function( df_long, fitobj, timevar, times = 6:36, nsamp = 2000){
 
     all_questions <- sort(unique(df_long$question))
     n_reps <- 100
 
     new_data <- crossing(ID = paste0("new_patient", 1:n_reps),
-                         question = all_questions, alsfrs_dly_mnths = times)
+                         question = all_questions, time = times)
+    new_data <- new_data %>% rename(!!timevar := "time")
+
     # get linear predictions
     linpreds <- posterior_linpred(fitobj,
                                   newdata = new_data,
