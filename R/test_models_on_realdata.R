@@ -114,8 +114,6 @@ fit_mult_nocor
 
 
 
-
-
 # fit third model
 fit_cratio <- brm(answer ~ alsfrs_dly_mnths + cs(question) + (1 + question | ID),
                   family = cratio("logit"), data = frs_long,
