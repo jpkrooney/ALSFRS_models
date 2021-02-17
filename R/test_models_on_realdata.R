@@ -1,8 +1,3 @@
-#' @title Irish ALSFRS Total Correlation Explanation
-#' @author Dr. James Rooney, TCD
-#' @details
-#' This R Script performs a Total Correlation Explanation analysis of longtiudinal ALSFRS data from the Irish
-#' ALS register.
 
 # Load required packages
 library(tidyverse)
@@ -79,7 +74,7 @@ saveRDS(df_frs, "Data/long_format_wide.RDS")
 saveRDS(frs_long, "Data/long_format_long.RDS")
 
 # Fit first model
-fit_dimensions1 <- brm(answer ~ question + time_first + (0 + question  | ID),
+fit_dimensions1 <- brm(answer ~ question + alsfrs_dly_mnths + (0 + question  | ID),
                        family = cumulative("logit"), data = frs_long,
                        file = paste0(cache_dir, "/ALSFRSdimensions1_time.rds"), cores=4)
 fit_dimensions1
@@ -88,10 +83,10 @@ vc <- VarCorr(fit_dimensions1)
 corrs <- vc[[1]][[2]]
 
 
-mcmc_trace(fit_dimensions1, pars = c("cor_ID__questionALSFRS_Q1__questionALSFRS_Q4",
-                              "b_Intercept[1]",
-                              "cor_ID__questionALSFRS_Q6__questionALSFRS_Q5",
-                              "b_questionALSFRS_Q3") )
+#mcmc_trace(fit_dimensions1, pars = c("cor_ID__questionALSFRS_Q1__questionALSFRS_Q4",
+#                              "b_Intercept[1]",
+#                              "cor_ID__questionALSFRS_Q6__questionALSFRS_Q5",
+#                              "b_questionALSFRS_Q3") )
 
 # Posterior predictive check
 mod1_pp1 <- pp_check(fit_dimensions1, nsamples = 200)
@@ -99,28 +94,53 @@ print(mod1_pp1)
 
 
 
-
 # fit second model
 fit_multivariate <- brm(
-    mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + time_first + (1 | p | ID),
+    mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (1 | p | ID),
                         data = df_frs,
                         family = cumulative("logit"),
                         file = paste0(cache_dir, "/ALSFRSmultivariate.rds"), cores = 4)
 fit_multivariate
 
 
+# gaussian with rescor and without rescor
+fit_multiGauss1 <- brm(
+  bf(mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (1 | p | ID)) + set_rescor(FALSE),
+  data = df_frs,
+  family = gaussian,
+  file = paste0(cache_dir, "/ALSFRSmultGauss.rds"), cores = 4)
+fit_multiGauss1
+
+fit_multiGauss2 <- brm(
+  bf(mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (1 | p | ID)) + set_rescor(TRUE),
+  data = df_frs,
+  family = gaussian,
+  file = paste0(cache_dir, "/ALSFRSmultGauss2.rds"), cores = 4)
+fit_multiGauss2
+
+
 # fit multivariate model with no correlation term
 fit_mult_nocor <- brm(
-  mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + time_first,
+  mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths,
   data = df_frs,
   family = cumulative("logit"),
   file = paste0(cache_dir, "/ALSFRSmult_nocor.rds"), cores = 4)
 fit_mult_nocor
 
 
+# Variation of multivariate model
+fit_multimix <- brm(
+  mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (alsfrs_dly_mnths | p | ID),
+  data = df_frs,
+  family = cumulative("logit"),
+  file = paste0(cache_dir, "/ALSFRSmultimix.rds"), cores = 4)
+fit_multimix
+
+
+
 
 # fit third model
-fit_cratio <- brm(answer ~ time_first + cs(question) + (1 + question | ID),
+fit_cratio <- brm(answer ~ alsfrs_dly_mnths + cs(question) + (1 + question | ID),
                   family = cratio("logit"), data = frs_long,
                   file = paste0(cache_dir, "/ALSFRScratio.rds"), cores = 4)
 fit_cratio
@@ -153,7 +173,7 @@ prior_custom <-  c(set_prior("student_t(3, 0, 2.5)", class = "b", dpar = "thresh
 )
 
 
-fit_custom <- brm(bf(answer ~ 0 + time_first  + (1 + question | ID),
+fit_custom <- brm(bf(answer ~ 0 + alsfrs_dly_mnths  + (1 + question | ID),
                      threshA ~ 0 + Intercept + question, # Avoiding centering of the intercept
                      widthB  ~ 0 + Intercept + question,
                      widthC  ~ 0 + Intercept + question,
@@ -168,7 +188,7 @@ fit_custom
 
 
 # fit fifth model - threshold model
-fit_thresh <- brm(answer ~ time_first + cs(question) + (1 + question | ID),
+fit_thresh <- brm(answer ~ alsfrs_dly_mnths + cs(question) + (1 + question | ID),
                   family = cratio("logit"), data = frs_long,
                   file = paste0(cache_dir, "/ALSFRSthresh.rds"), cores = 4)
 fit_thresh
