@@ -5,7 +5,10 @@ library(tableone)
 library(brms)
 library(bayesplot)
 
+options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
 cache_dir <- here::here("local_temp_data")
+
+threads = 2
 
 # Load data
 df_ind <- read.csv("Data/casedata.csv", stringsAsFactors = FALSE)
@@ -76,8 +79,11 @@ saveRDS(frs_long, "Data/long_format_long.RDS")
 # Fit first model
 fit_dimensions1 <- brm(answer ~ question + alsfrs_dly_mnths + (0 + question  | ID),
                        family = cumulative("logit"), data = frs_long,
-                       file = paste0(cache_dir, "/ALSFRSdimensions1_time.rds"), cores=4)
+                       file = paste0(cache_dir, "/ALSFRSdimensions1_time.rds"),
+                       cores=4, threads = threading(threads))
 fit_dimensions1
+
+
 
 vc <- VarCorr(fit_dimensions1)
 corrs <- vc[[1]][[2]]
@@ -99,41 +105,46 @@ fit_multivariate <- brm(
     mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (1 | p | ID),
                         data = df_frs,
                         family = cumulative("logit"),
-                        file = paste0(cache_dir, "/ALSFRSmultivariate.rds"), cores = 4)
+                        file = paste0(cache_dir, "/ALSFRSmultivariate.rds"),
+    cores = 4, threads = threading(threads))
 fit_multivariate
 
 
 # gaussian with rescor and without rescor
 fit_multiGauss1 <- brm(
-  bf(mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (1 | p | ID)) + set_rescor(FALSE),
-  data = df_frs,
-  family = gaussian,
-  file = paste0(cache_dir, "/ALSFRSmultGauss.rds"), cores = 4)
+    bf(mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (1 | p | ID)) + set_rescor(FALSE),
+    data = df_frs,
+    family = gaussian,
+    file = paste0(cache_dir, "/ALSFRSmultGauss.rds"),
+    cores = 4, threads = threading(threads))
 fit_multiGauss1
 
 fit_multiGauss2 <- brm(
-  bf(mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (1 | p | ID)) + set_rescor(TRUE),
-  data = df_frs,
-  family = gaussian,
-  file = paste0(cache_dir, "/ALSFRSmultGauss2.rds"), cores = 4)
+    bf(mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (1 | p | ID)) + set_rescor(TRUE),
+    data = df_frs,
+    family = gaussian,
+    file = paste0(cache_dir, "/ALSFRSmultGauss2.rds"),
+    cores = 4, threads = threading(threads))
 fit_multiGauss2
 
 
 # fit multivariate model with no correlation term
 fit_mult_nocor <- brm(
-  mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths,
-  data = df_frs,
-  family = cumulative("logit"),
-  file = paste0(cache_dir, "/ALSFRSmult_nocor.rds"), cores = 4)
-fit_mult_nocor
+    mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths,
+    data = df_frs,
+    family = cumulative("logit"),
+    file = paste0(cache_dir, "/ALSFRSmult_nocor.rds"),
+    cores = 4, threads = threading(threads))
+f  it_mult_nocor
 
 
 # Variation of multivariate model
 fit_multimix <- brm(
-  mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (alsfrs_dly_mnths | p | ID),
-  data = df_frs,
-  family = cumulative("logit"),
-  file = paste0(cache_dir, "/ALSFRSmultimix.rds"), cores = 4)
+    mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (alsfrs_dly_mnths | p | ID),
+    data = df_frs,
+    family = cumulative("logit"),
+    file = paste0(cache_dir, "/ALSFRSmultimix.rds"),
+    cores = 4, threads = threading(threads))
 fit_multimix
 
 
@@ -142,10 +153,9 @@ fit_multimix
 # fit third model
 fit_cratio <- brm(answer ~ alsfrs_dly_mnths + cs(question) + (1 + question | ID),
                   family = cratio("logit"), data = frs_long,
-                  file = paste0(cache_dir, "/ALSFRScratio.rds"), cores = 4)
+                  file = paste0(cache_dir, "/ALSFRScratio.rds"),
+                  cores = 4, threads = threading(threads))
 fit_cratio
-
-
 
 
 # fit model four
@@ -181,7 +191,7 @@ fit_custom <- brm(bf(answer ~ 0 + alsfrs_dly_mnths  + (1 + question | ID),
                   family = cumulative_logit_cs5, data = frs_long, stanvars = stanvars,
                   prior = prior_custom,
                   file = paste0(cache_dir, "/ALSFRScustom.rds"),
-                  cores=4)
+                  cores=4, threads = threading(threads))
 
 
 fit_custom
@@ -190,7 +200,8 @@ fit_custom
 # fit fifth model - threshold model
 fit_thresh <- brm(answer ~ alsfrs_dly_mnths + cs(question) + (1 + question | ID),
                   family = cratio("logit"), data = frs_long,
-                  file = paste0(cache_dir, "/ALSFRSthresh.rds"), cores = 4)
+                  file = paste0(cache_dir, "/ALSFRSthresh.rds"),
+                  cores = 4, threads = threading(threads))
 fit_thresh
 
 
