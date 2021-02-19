@@ -191,7 +191,7 @@ fit_custom <- brm(bf(answer ~ 0 + alsfrs_dly_mnths  + (1 + question | ID),
                   family = cumulative_logit_cs5, data = frs_long, stanvars = stanvars,
                   prior = prior_custom,
                   file = paste0(cache_dir, "/ALSFRScustom.rds"),
-                  cores=4, threads = threading(threads))
+                  cores=4)
 
 
 fit_custom
