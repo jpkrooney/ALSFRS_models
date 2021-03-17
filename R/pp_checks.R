@@ -60,6 +60,11 @@ pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0
         cor_actual <- as.numeric(cor_actual_matrix)[cors_to_use]
         names(cor_actual) <- cor_names_to_use
 
+        if(any(is.na(cor_actual))) {
+            warning(paste0("Group = ", group_names[g], ": ", sum(is.na(cor_actual)),
+                           " actual correlations are NA, possibly because no within-group variability is observed\n"))
+        }
+
         cor_pred_all <- suppressWarnings(
             apply(predicted[ , group == group_names[g], ], MARGIN = 1, FUN = cor)
         )
