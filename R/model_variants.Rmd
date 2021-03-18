@@ -211,6 +211,43 @@ As implemented above, things like `loo` or `posterior_predict` won't work for th
 This approach gives us the same flexibility as the `cratio` approach, but we can keep the "latent continuous progression" interpretation.
 
 
+# Residual correlations
+
+## Poor man's multivariate probit
+
+The idea is that we add a varying intercept that corresponds to the correlated residuals, i.e. we add one parameter per observed answer as a varying intercept of the form `(0 + question | obs_id)` where `obs_id` uniquely identifies each row in the wide dataset. To keep the model identified, we fix the `sd` of this varying intercept. 
+
+We then increase the `disc` parameter of the `cumulative("logit")` distribution (which I currently do by adding `disc ~ 1` to the formula and setting a constant prior on this intercept. This is _almost_ the same as using actual multivariate distribution, the difference is that the observation noise now has two components: one independent from the logistic distribution of `ordered_logistic` (with roughly `sd = 1/disc`) and one correlated from the varying intercept (where we set the `sd = 1`). So as `disc -> inf` we get a closer and closer approximation to multivariate probit, but also increase risk of computational issues. `disc = 10` seems to work quite OK.
+
+Note: it does not really matter which link we put in the `cumulative` response (as we are trying to minimize it's effect), but the `logit` link is much more numerically stable than the `probit` link, so we use it. Still, this is a `probit` model, because the main noise component is normally distributed.
+
+```{r}
+fit_thres_rescor_approx <- brm(bf(
+  answer | thres(gr = question) ~ time_from_diagnosis + (1 | patient) + (0 + question | obs_id), disc ~ 1, family = cumulative(link = "logit", link_disc = "identity")), 
+  prior = c(
+    prior(constant(1), class = "sd", group = "obs_id"), 
+    prior(student_t(3, 0, 5*2.5), class = "Intercept"),
+    prior(constant(10), class = "Intercept", dpar = "disc")
+  ),
+  data = simple_test_long, 
+  file = paste0(cache_dir, "/cumulative_thresh_rescor_approx.rds"), refresh = 0
+  )
+
+
+
+fit_thres_rescor_approx
+```
+
+
+```{r}
+pred_thres_rescor_approx <- posterior_predict(fit_thres_rescor_approx, cores = 1)
+
+pp_check_cor_long(pred_thres_rescor_approx, simple_test_long, "answer", "question", "obs_id", actual_point_size = 10) 
+pp_check_cor_long(pred_thres_rescor_approx, simple_test_long, "answer", "question", "obs_id", group = as.integer(simple_test_long$patient) < 4)
+
+```
+
+
 # Things left out
 
 I didn't include how to use the "implied Dirichlet" prior for any of the models (as suggested in Mike's blog post), but I believe it should be possible if needed (especially to take care of questions where the full range of the answers is not present in the data)

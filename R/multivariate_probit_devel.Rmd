@@ -1,0 +1,55 @@
+```{r setup, message=FALSE, warning = FALSE, results = "hide"}
+library(brms)
+library(tidyverse)
+library(cmdstanr)
+source(here::here("R", "pp_checks.R"))
+source(here::here("R", "simulator_multivariate.R"))
+source(here::here("R", "sbc.R"))
+source(here::here("R", "sampling_multi.R"))
+source(here::here("R", "evaluation_tools.R"))
+
+options(mc.cores = parallel::detectCores() - 1, brms.backend = "cmdstanr")
+cache_dir <- here::here("local_temp_data")
+if(!dir.exists(cache_dir)) {
+  dir.create(cache_dir)
+}
+```
+
+
+
+
+```{r}
+generator <- function() {generator_multivariate_probit_approx(N_obs = 100, N_cat = 4, N_dim = 3, disc = 10) }
+
+
+single_test <- generator()
+
+ model <- cmdstan_model(write_stan_file(single_test$stancode))
+
+
+```
+
+```{r}
+cmdstan_fit <- model$sample(data = single_test$observed, init = 0.1)
+fit <- rstan::read_stan_csv(cmdstan_fit$output_files())
+
+evaluation_summary(fit, single_test$true)
+```
+```{r}
+adapt_delta <- 0.8
+sbc_res <- sbc(model, generator = generator, N_steps = 500, control = list(adapt_delta = adapt_delta))
+saveRDS(sbc_res, file = paste0(cache_dir, "/sbc_mv_probit.rds"))
+
+```
+
+```{r}
+sbc_res$params %>% filter(grepl("b|cor", param_name)) %>% plot_sbc_params()
+sbc_res$params %>% filter(grepl("Intercept", param_name)) %>% plot_sbc_params()
+
+sbc_res$params %>% filter(grepl("b|cor", param_name)) %>% plot_sbc_params(binwidth = 5)
+sbc_res$params %>% filter(grepl("Intercept", param_name)) %>% plot_sbc_params(binwidth = 5)
+
+summarise_sbc_diagnostics(sbc_res)
+sbc_res$diagnostics
+```
+
