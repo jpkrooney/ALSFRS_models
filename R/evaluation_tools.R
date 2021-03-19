@@ -33,12 +33,16 @@ evaluate_single_param_indices <- function(samples, param_name, indices, true_val
 
   mad_val = mad(param_samples, center = true_value)
   rmse_val = sqrt(mean((param_samples - true_value) ^ 2))
+  q95 <- quantile(param_samples, c(0.025,0.975))
+  names(q95) <- NULL
   return(data.frame(
     param_name = fullName,
     true_value = true_value,
-    median = median(param_samples),
+    #median = median(param_samples),
     mean = mean(param_samples),
-    IQR = IQR(param_samples),
+    l95 = q95[1],
+    u95 = q95[2],
+    #IQR = IQR(param_samples),
     quantile = ecdf(param_samples)(true_value),
     order_within = order_within_samples(true_value, param_samples)
     # mad = mad_val,

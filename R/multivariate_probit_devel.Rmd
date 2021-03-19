@@ -3,12 +3,14 @@ library(brms)
 library(tidyverse)
 library(cmdstanr)
 source(here::here("R", "pp_checks.R"))
+source(here::here("R", "mv_probit_bgoodri.R"))
+source(here::here("R", "mv_probit_augmented.R"))
 source(here::here("R", "simulator_multivariate.R"))
 source(here::here("R", "sbc.R"))
 source(here::here("R", "sampling_multi.R"))
 source(here::here("R", "evaluation_tools.R"))
 
-options(mc.cores = parallel::detectCores() - 1, brms.backend = "cmdstanr")
+options(mc.cores = parallel::detectCores() - 2, brms.backend = "cmdstanr")
 cache_dir <- here::here("local_temp_data")
 if(!dir.exists(cache_dir)) {
   dir.create(cache_dir)
@@ -16,29 +18,43 @@ if(!dir.exists(cache_dir)) {
 ```
 
 
-
+# Poor man's approx
 
 ```{r}
-generator <- function() {generator_multivariate_probit_approx(N_obs = 100, N_cat = 4, N_dim = 3, disc = 10) }
+single_test <- generator_multivariate_probit_approx(N_obs = 500, N_cat = 5, N_dim = 5, disc = 5)
 
-
-single_test <- generator()
-
- model <- cmdstan_model(write_stan_file(single_test$stancode))
+model_single <- cmdstan_model(write_stan_file(single_test$stancode))
 
 
 ```
 
 ```{r}
-cmdstan_fit <- model$sample(data = single_test$observed, init = 0.1)
+# init_fun <- function() {
+#     init_list <- list()
+#     for(i in 1:12) {
+#         init_list[[paste0("Intercept_", i)]] <- c(-1.5,-0.5,0.5,1.5)
+#     }
+#     init_list$z_1 <- single_test$observed$Y - 3
+#     init_list$b <- rep(0, 12)
+#     init_list$L_1 <- matrix(1e-5, nrow = 12, ncol = 12)
+#     diag(init_list$L_1) <- 1
+#     init_list
+# }
+
+cmdstan_fit <- model_single$sample(data = single_test$observed)
 fit <- rstan::read_stan_csv(cmdstan_fit$output_files())
 
 evaluation_summary(fit, single_test$true)
 ```
 ```{r}
+generator <- function() {generator_multivariate_probit_approx(N_obs = 100, N_cat = 4, N_dim = 3, disc = 5) }
+
+model_sbc_file <- write_stan_file(generator()$stancode, dir = cache_dir, basename = "mv_probit_approx_sbc.stan")
+model_sbc <- cmdstan_model(model_sbc_file)
+
 adapt_delta <- 0.8
-sbc_res <- sbc(model, generator = generator, N_steps = 500, control = list(adapt_delta = adapt_delta))
-saveRDS(sbc_res, file = paste0(cache_dir, "/sbc_mv_probit.rds"))
+sbc_res <- sbc(model_sbc, generator = generator, N_steps = 100, control = list(adapt_delta = adapt_delta), cores = 10)
+saveRDS(sbc_res, file = paste0(cache_dir, "/sbc_mv_probit_low_disc.rds"))
 
 ```
 
@@ -51,5 +67,112 @@ sbc_res$params %>% filter(grepl("Intercept", param_name)) %>% plot_sbc_params(bi
 
 summarise_sbc_diagnostics(sbc_res)
 sbc_res$diagnostics
+```
+
+# Data augmentation
+
+```{r}
+
+single_test <- generator_multivariate_probit_augmented(N_obs = 100, N_cat = 2, N_dim = 4)
+
+model_single <- cmdstan_model(write_stan_file(single_test$stancode))
+
+
+cmdstan_fit <- model_single$sample(data = single_test$observed)
+fit <- rstan::read_stan_csv(cmdstan_fit$output_files())
+
+evaluation_summary(fit, single_test$true)
+```
+
+
+
+```{r}
+generator <- function() {generator_multivariate_probit_augmented(N_obs = 100, N_cat = 5, N_dim = 3) }
+
+model_sbc_file <- write_stan_file(generator()$stancode, dir = cache_dir, basename = "mv_probit_augmented_sbc.stan")
+model_sbc <- cmdstan_model(model_sbc_file)
+
+adapt_delta <- 0.95
+sbc_res <- sbc(model_sbc, generator = generator, N_steps = 100, control = list(adapt_delta = adapt_delta), cores = 11)
+saveRDS(sbc_res, file = paste0(cache_dir, "/sbc_mv_probit_bgoodri2cat.rds"))
+
+```
+
+```{r}
+sbc_res$params %>% plot_sbc_params()
+#sbc_res$params %>% filter(grepl("Intercept", param_name)) %>% plot_sbc_params()
+
+sbc_res$params %>% plot_sbc_params(binwidth = 5)
+
+summarise_sbc_diagnostics(sbc_res)
+
+```
+
+# Bgoodri's
+
+```{r}
+single_test <- generator_multivariate_probit_bgoodri(N_obs = 1000, N_cat = 5, N_dim = 12)
+
+model_single <- cmdstan_model(write_stan_file(single_test$stancode))
+
+
+```
+
+```{r}
+cmdstan_fit <- model_single$sample(data = single_test$observed, adapt_delta = 0.95)
+fit <- rstan::read_stan_csv(cmdstan_fit$output_files())
+
+evaluation_summary(fit, single_test$true)
+```
+
+
+
+```{r}
+generator <- function() {generator_multivariate_probit_bgoodri(N_obs = 100, N_cat = 5, N_dim = 3) }
+
+model_sbc_file <- write_stan_file(generator()$stancode, dir = cache_dir, basename = "mv_probit_bgoodri_sbc.stan")
+model_sbc <- cmdstan_model(model_sbc_file)
+
+adapt_delta <- 0.95
+sbc_res <- sbc(model_sbc, generator = generator, N_steps = 50, control = list(adapt_delta = adapt_delta), cores = 11)
+saveRDS(sbc_res, file = paste0(cache_dir, "/sbc_mv_probit_bgoodri.rds"))
+
+```
+
+```{r}
+sbc_res$params %>% plot_sbc_params()
+#sbc_res$params %>% filter(grepl("Intercept", param_name)) %>% plot_sbc_params()
+
+sbc_res$params %>% plot_sbc_params(binwidth = 5)
+
+summarise_sbc_diagnostics(sbc_res)
+
+```
+
+
+# Bgoodri's orig (tweaked) code
+
+```{r}
+model_orig <- cmdstan_model(here::here("R", "probit-multi-good.stan"))
+```
+```{r}
+source(here::here("R", "probit-multi-good.data.R"))
+data_orig <- loo::nlist(K,D,N,y,x)
+
+fit_orig <- model_orig$sample(data = data_orig, init = 0)
+```
+
+```{r}
+data_orig_sim <- generator_multivariate_probit_bgoodri_orig(100, 4)
+cmdstan_fit_orig_sim <- model_orig$sample(data_orig_sim$observed)
+fit_orig_sim <- rstan::read_stan_csv(cmdstan_fit_orig_sim$output_files())
+
+evaluation_summary(fit = fit_orig_sim, data_orig_sim$true)
+```
+
+```{r}
+generator <- function() { generator_multivariate_probit_bgoodri_orig(100, 4) }
+
+
 ```
 

@@ -30,7 +30,7 @@ sbc <- function(model, generator, N_steps, iter = 2000, ...) {
   return(list(params = param_stats, diagnostics = diagnostics, data = observed_list, true_values = true_list))
 }
 
-plot_sbc_params <- function(params, binwidth = 10, caption = NULL, plot_stat = "median", x_axis_trans = "identity", y_axis_trans = "identity") {
+plot_sbc_params <- function(params, binwidth = 10, caption = NULL, plot_stat = "mean", x_axis_trans = "identity", y_axis_trans = "identity") {
   if(!plot_stat %in% c("median","mean") ){
     stop("Invalid plot_stat")
   }
