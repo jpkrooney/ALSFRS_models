@@ -101,25 +101,22 @@ generator_multivariate_probit_approx <- function(N_obs, N_cat, N_dim, disc = 10)
     )
 }
 
-
-generator_multivariate_probit_augmented <- function(N_obs, N_cat, N_dim) {
+generator_multivariate_probit_mv_shared <- function(N_obs, N_cat, N_dim,
+                                                    stanvars) {
     raw <- simulate_multivariate_probit(N_obs, N_cat, N_dim)
 
     question_names <- paste0("q", 1:N_dim)
 
     f <- brmsformula(as.formula(
-        paste0("mvbind(", paste0(question_names, collapse = ", "), ") ~ 0 + X")
+        paste0("mvbind(", paste0(question_names, collapse = ", "), ") ~ X")
     ),
-    family = empty_ordinal(N_cat))  + set_rescor(FALSE)
+    family = empty_cumulative(), center = FALSE)  + set_rescor(FALSE)
 
 
     priors <- c(
-        prior(normal(0, 1), class = "b")
+        prior(normal(0, 1), class = "b"),
+        prior(normal(0, 3), class = "Intercept")
     )
-
-    stanvars <- make_stanvars_ordinal_augmented(question_names, N_cat,
-                                              threshold_prior_family = "normal",
-                                              threshold_prior_args = "0,3")
 
     stancode <- make_stancode(f,
                               prior = priors,
@@ -133,14 +130,13 @@ generator_multivariate_probit_augmented <- function(N_obs, N_cat, N_dim) {
     class(standata) <- NULL
 
     true = list(
-        rescor = raw$true$corr_upper,
-        thresholds = t(raw$true$thresholds)
+        rescor = raw$true$corr_upper
     )
 
     for(i in 1:N_dim) {
         true[[paste0("b_", question_names[i])]] <- array(raw$true$beta[i], dim = 1)
+        true[[paste0("Intercept_", question_names[i])]] <- raw$true$thresholds[, i]
     }
-
 
     list(
         true = true,
@@ -149,50 +145,18 @@ generator_multivariate_probit_augmented <- function(N_obs, N_cat, N_dim) {
     )
 }
 
-generator_multivariate_probit_bgoodri <- function(N_obs, N_cat, N_dim) {
-    raw <- simulate_multivariate_probit(N_obs, N_cat, N_dim)
-
+generator_multivariate_probit_augmented <- function(N_obs, N_cat, N_dim) {
     question_names <- paste0("q", 1:N_dim)
 
-    f <- brmsformula(as.formula(
-        paste0("mvbind(", paste0(question_names, collapse = ", "), ") ~ 0 + X")
-    ),
-        family = empty_ordinal(N_cat))  + set_rescor(FALSE)
+    generator_multivariate_probit_mv_shared(N_obs, N_cat, N_dim, stanvars =
+                                                make_stanvars_mv_probit_augmented(question_names))
+}
 
+generator_multivariate_probit_bgoodri <- function(N_obs, N_cat, N_dim) {
+    question_names <- paste0("q", 1:N_dim)
 
-    priors <- c(
-        prior(normal(0, 1), class = "b")
-    )
-
-    stanvars <- make_stanvars_mv_probit_bgoodri(question_names, N_cat,
-                                              threshold_prior_family = "normal",
-                                              threshold_prior_args = "0,3")
-
-    stancode <- make_stancode(f,
-                              prior = priors,
-                              stanvars = stanvars,
-                              data = raw$observed_df)
-
-    standata <- make_standata(f,
-                              prior = priors,
-                              stanvars = stanvars,
-                              data = raw$observed_df)
-    class(standata) <- NULL
-
-    true = list(
-        rescor = raw$true$corr_upper,
-        thresholds = t(raw$true$thresholds)
-    )
-
-    for(i in 1:N_dim) {
-        true[[paste0("b_", question_names[i])]] <- array(raw$true$beta[i], dim = 1)
-    }
-
-    list(
-        true = true,
-        stancode = stancode,
-        observed = standata
-    )
+    generator_multivariate_probit_mv_shared(N_obs, N_cat, N_dim, stanvars =
+                                                make_stanvars_mv_probit_bgoodri(question_names))
 }
 
 generator_multivariate_probit_bgoodri_orig <- function(N_obs, N_dim) {

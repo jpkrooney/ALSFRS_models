@@ -3,8 +3,7 @@ library(brms)
 library(tidyverse)
 library(cmdstanr)
 source(here::here("R", "pp_checks.R"))
-source(here::here("R", "mv_probit_bgoodri.R"))
-source(here::here("R", "mv_probit_augmented.R"))
+source(here::here("R", "mv_probit.R"))
 source(here::here("R", "simulator_multivariate.R"))
 source(here::here("R", "sbc.R"))
 source(here::here("R", "sampling_multi.R"))
@@ -71,9 +70,11 @@ sbc_res$diagnostics
 
 # Data augmentation
 
+TODO: brms does not currently allow cumulative with just two categories (possibly a bug, there is a warning , but then it produces invalid code)
+
 ```{r}
 
-single_test <- generator_multivariate_probit_augmented(N_obs = 100, N_cat = 2, N_dim = 4)
+single_test <- generator_multivariate_probit_augmented(N_obs = 1000, N_cat = 5, N_dim = 12)
 
 model_single <- cmdstan_model(write_stan_file(single_test$stancode))
 
@@ -94,7 +95,7 @@ model_sbc <- cmdstan_model(model_sbc_file)
 
 adapt_delta <- 0.95
 sbc_res <- sbc(model_sbc, generator = generator, N_steps = 100, control = list(adapt_delta = adapt_delta), cores = 11)
-saveRDS(sbc_res, file = paste0(cache_dir, "/sbc_mv_probit_bgoodri2cat.rds"))
+saveRDS(sbc_res, file = paste0(cache_dir, "/sbc_mv_probit_augmented.rds"))
 
 ```
 
@@ -112,6 +113,7 @@ summarise_sbc_diagnostics(sbc_res)
 
 ```{r}
 single_test <- generator_multivariate_probit_bgoodri(N_obs = 1000, N_cat = 5, N_dim = 12)
+#single_test <- generator_multivariate_probit_bgoodri(N_obs = 100, N_cat = 3, N_dim = 4)
 
 model_single <- cmdstan_model(write_stan_file(single_test$stancode))
 
@@ -119,7 +121,7 @@ model_single <- cmdstan_model(write_stan_file(single_test$stancode))
 ```
 
 ```{r}
-cmdstan_fit <- model_single$sample(data = single_test$observed, adapt_delta = 0.95)
+cmdstan_fit <- model_single$sample(data = single_test$observed, adapt_delta = 0.95, init = 0.001)
 fit <- rstan::read_stan_csv(cmdstan_fit$output_files())
 
 evaluation_summary(fit, single_test$true)
