@@ -7,6 +7,7 @@ output: html_document
 library(brms)
 library(tidyverse)
 source(here::here("R", "pp_checks.R"))
+source(here::here("R", "mv_probit.R"))
 options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
 cache_dir <- here::here("local_temp_data")
 if(!dir.exists(cache_dir)) {
@@ -245,6 +246,76 @@ pred_thres_rescor_approx <- posterior_predict(fit_thres_rescor_approx, cores = 1
 pp_check_cor_long(pred_thres_rescor_approx, simple_test_long, "answer", "question", "obs_id", actual_point_size = 10) 
 pp_check_cor_long(pred_thres_rescor_approx, simple_test_long, "answer", "question", "obs_id", group = as.integer(simple_test_long$patient) < 4)
 
+```
+
+## Multivariate probit - data augmentation
+
+```{r}
+question_names <- paste0("q", 1:3)
+
+
+sv_augmented <- make_stanvars_mv_probit_augmented(
+  column_names = question_names
+  )
+
+f <- bf(mvbind(q1,q2,q3) ~ 1 + time_from_diagnosis, family = empty_cumulative()) + set_rescor(FALSE)
+
+# stancode <- make_stancode(f, data = simple_test, stanvars = sv_augmented)
+# stancode
+# model_file <- write_stan_file(stancode, dir = cache_dir, basename = "mv_probit_augmented.stan")
+# 
+# 
+# model <- cmdstan_model(model_file)
+# 
+# model_data <- make_standata(f, data = simple_test, stanvars = sv_augmented)
+# class(model_data) <- NULL
+# 
+# fit_thres_rescor_augmented <- model$sample(data = model_data, chains = 4)
+
+fit_thres_rescor_augmented <- brm(f, data = simple_test, stanvars = sv_augmented)
+fit_thres_rescor_augmented
+```
+```{r}
+pred_rescor_augmented <- posterior_predict_mv_probit(fit_thres_rescor_augmented)
+  
+pp_check_cor_wide(pred_rescor_augmented, simple_test, paste0("q", 1:3), actual_point_size = 10) 
+pp_check_cor_wide(pred_rescor_augmented, simple_test, paste0("q", 1:3), group = as.integer(simple_test$patient) < 4)
+```
+
+
+## Multivariate probit - bgoodri's parametrization
+
+Code based on https://github.com/stan-dev/example-models/commit/d6f0282d64382b627dfddca6b7f9a551bda3f537 and advice on Stan Discourse by @CerulloE (Thanks everybody!)
+
+```{r}
+sv <- make_stanvars_mv_probit_bgoodri(
+  c("q1","q2","q3")
+)
+
+# f <- bf(mvbind(q1,q2,q3) ~ 1 + time_from_diagnosis + (1 | p | patient), family = empty_cumulative()) + set_rescor(FALSE)
+# 
+# stancode <- make_stancode(f, data = simple_test, stanvars = sv)
+# model_file <- cmdstanr::write_stan_file(stancode, dir = cache_dir, basename = "mv_probit_bgoodri.stan")
+# 
+# 
+# model <- cmdstan_model(model_file)
+# 
+# model_data <- make_standata(f, data = simple_test, stanvars = sv)
+# class(model_data) <- NULL
+# 
+# fit_thres_rescor_augmented <- model$sample(data = model_data, chains = 4)
+# 
+# stancode
+
+fit_rescor_bgoodri <- brm(bf(mvbind(q1,q2,q3) ~ 1 + time_from_diagnosis, family = empty_cumulative()) + set_rescor(FALSE), data = simple_test, stanvars = sv, adapt_delta = 0.95)
+
+```
+
+```{r}
+pred_rescor_bgoodri <- posterior_predict_mv_probit(fit_rescor_bgoodri)
+  
+pp_check_cor_wide(pred_rescor_bgoodri, simple_test, paste0("q", 1:3), actual_point_size = 10) 
+pp_check_cor_wide(pred_rescor_bgoodri, simple_test, paste0("q", 1:3), group = as.integer(simple_test$patient) < 4)
 ```
 
 
