@@ -1,0 +1,89 @@
+---
+title: "Examine_results 12Q"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tableone)
+library(brms)
+library(bayesplot)
+library(rstan)
+library(corrplot)
+library(here)
+library(kableExtra)
+
+cache_dir <- here("local_temp_data")
+
+# Load data
+df_frs <- readRDS(here("Data/long_format_wide12Qs.RDS"))
+frs_long <- readRDS(here("Data/long_format_long12Qs.RDS"))
+
+
+# Load models
+fit_mvprob12Q <- readRDS(paste0(cache_dir, "/mvprobit_bgoodri_12Qs.rds"))
+
+# Load correlation helper functions
+source(here("R/helpfns.R"))
+source(here("R/pp_checks.R"))
+source(here("R/mv_probit.R"))
+
+
+questions <- c("Q01", "Q02", "Q03", "Q04", "Q05", "Q06",
+               "Q07", "Q08", "Q09", "Q10", "Q11", "Q12")
+
+# Get correlations using helper function
+cor_bgood <- predcor_multv(fit_mvprob12Q, timevar = "alsfrs_dly_mnths")
+
+```
+
+The model had the following numbers of parameters:
+```{r numpars, echo=FALSE}
+print(paste0("Model 6 (mvpro_bgood): ", length(parnames(fit_mvprob12Q))))
+
+```
+and the following numbers of divergences:
+```{r divs, echo=FALSE}
+print(paste0("Model 6: ", get_num_divergent(fit_mvprob12Q$fit)))
+
+```
+
+lets look at a traceplot or 2:
+```{r trace}
+
+mcmc_trace(fit_mvprob12Q, pars = c("b_Q01_Intercept[3]", "b_Q07_alsfrs_dly_mnths",
+                                   "cor_ID__Q06_Intercept__Q08_alsfrs_dly_mnths",
+                                   "r_1[74,20]","Rescor[10,12]"))
+
+
+```
+
+
+The times for warmup and sampling for each chain of the models were:
+```{r times, echo=FALSE}
+print("Model 6:")
+get_elapsed_time(fit_mvprob12Q$fit)
+```
+
+
+
+## Model 6 - Multivariate probit - bgoodri's parametrization
+```{r mod6_bg, echo=FALSE}
+kable( cor_bgood , digits = 2, table.attr = "style='width:75%;'") 
+corrplot(cor_bgood , type = "lower")
+
+pred_rescor_bgoodri <- posterior_predict_mv_probit(fit_mvprob12Q)
+
+pp_check_cor_wide(pred_rescor_bgoodri, df_frs, questions, actual_point_size = 3) 
+pp_check_cor_wide(pred_rescor_bgoodri, df_frs, questions, group = as.integer(df_frs$site == "Spinal"))
+
+
+```
+
+How many rows (individuals) in the data ?
+```{r nobs}
+nrow(df_frs)
+```
