@@ -36,6 +36,7 @@ questions <- c("Q01", "Q02", "Q03", "Q04", "Q05", "Q06",
                "Q07", "Q08", "Q09", "Q10", "Q11", "Q12")
 
 # Get correlations using helper function
+# need to modify this to alllow subsets of data
 cor_bgood <- predcor_multv(fit_mvprob12Q, timevar = "alsfrs_dly_mnths")
 
 ```
@@ -87,3 +88,88 @@ How many rows (individuals) in the data ?
 ```{r nobs}
 nrow(df_frs)
 ```
+
+
+Let's look at the fixed effects:
+```{r fixef}
+summ_fixef <- fixef(fit_mvprob12Q) %>% 
+    data.frame()
+summ_fixef$param <- row.names(summ_fixef)
+row.names(summ_fixef) <- NULL
+
+summ_fixef <- summ_fixef %>% 
+    dplyr::select(param, Estimate, Est.Error, Q2.5, Q97.5)
+
+#
+# summarise the intercepts
+summ_fixef %>%
+    filter( grepl( "Intercept", summ_fixef$param, fixed = TRUE) ) %>% 
+    kable(digits = 2)
+
+
+
+#summarise the slopes
+summ_fixef %>%
+    filter( grepl( "alsfrs_dly_mnths", summ_fixef$param, fixed = TRUE) ) %>% 
+    kable(digits = 2)
+
+# summarise the age covar
+summ_fixef %>%
+    filter( grepl( "age_dx", summ_fixef$param, fixed = TRUE) ) %>% 
+    kable(digits = 2)
+
+# summarise the dx_delay covar
+summ_fixef %>%
+    filter( grepl( "dx_delay", summ_fixef$param, fixed = TRUE) ) %>% 
+    kable(digits = 2)
+
+
+```
+
+
+
+How does longitudinal total score compare to raw total score ?
+```{r ppc_long}
+
+temp <- apply(pred_rescor_bgoodri, c(2, 3), mean) # can make this faster
+temp2 <- rowSums(temp) - 12 # -12 because 1 added to every question
+df_frs$fit <- temp2
+
+ggplot(df_frs, aes(x=Total, y = fit)) + geom_point() +
+    coord_fixed() + facet_wrap(~site) +
+    geom_abline(slope=1, intercept=0)
+```
+
+How would this compare to an lmer model as would traditionally do ?
+```{r}
+library(lme4)
+library(splines)
+mm1 <- lmer(Total ~ ns(alsfrs_dly_mnths,2) + (ns(alsfrs_dly_mnths,2)|ID),
+            df_frs)
+
+df_frs$fit_lmer <- predict(mm1)
+
+ggplot(df_frs, aes(x=Total, y = fit_lmer)) + geom_point() +
+    coord_fixed() + facet_wrap(~site) +
+    geom_abline(slope=1, intercept=0)                        
+                           
+```
+
+
+## Compare fit over time
+```{r time_byfit}
+# raw data
+ggplot(df_frs, aes(x = alsfrs_dly_mnths, y = Total, group=ID)) + geom_line() +
+    facet_wrap(~site)
+
+# raw data + fit
+ggplot(df_frs, aes(x = alsfrs_dly_mnths, y = Total, group=ID)) + geom_line() +
+    geom_line(aes(y = fit, col="mv_probit")) +
+    geom_line(aes(y = fit_lmer, col="lme4")) +
+    facet_wrap(~site)
+
+
+```
+
+
+
