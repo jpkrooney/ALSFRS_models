@@ -232,3 +232,48 @@ get_rescor <- function(fit, size, subset = NULL) {
   stopifnot(all(!is.na(out)))
   out
 }
+
+
+
+rmulti_normal_custom <- function (mu, Sigma, check = FALSE)
+{
+  n = dim(mu)[1]
+  p <- dim(mu)[2]
+  if (check) {
+    if (!(is_wholenumber(n) && n > 0)) {
+      stop2("n must be a positive integer.")
+    }
+    if (!all(dim(Sigma) == c(p, p))) {
+      stop2("Dimension of Sigma is incorrect.")
+    }
+    if (!is_symmetric(Sigma)) {
+      stop2("Sigma must be a symmetric matrix.")
+    }
+  }
+  samples <- matrix(rnorm(n * p), nrow = n, ncol = p, byrow = TRUE)
+  mu + samples %*% chol(Sigma)
+}
+
+
+posterior_predict_mv_probit2 <- function(fit, nsamples = NULL, subset = NULL, ...) {
+  subset <- brms:::subset_samples(fit, subset, nsamples)
+  linpred <- posterior_linpred(fit, transform = FALSE, subset = subset, ...)
+  prep <- prepare_predictions(fit, subset = subset, ...)
+  N_dims <- length(prep$resps)
+  rescor <- get_rescor(fit, size = N_dims, subset = subset)
+
+  out <- array(NA_integer_, c(prep$nsamples, prep$nobs, N_dims))
+  for(s in seq_len(prep$nsamples)) {
+    mu_noise <- rmulti_normal_custom(mu = linpred[s, , ], Sigma = rescor[s, , ])
+    for(resp_id in 1:N_dims) {
+      thres <- prep$resps[[resp_id]]$thres
+      temp <- rep(thres$thres[s, ], each = prep$nobs) < mu_noise[, resp_id]
+      dim(temp) <- c(prep$nobs, length(thres$thres[s, ]))
+      out[s, , resp_id] <- rowSums(temp)
+    }
+  }
+  out + 1
+}
+
+
+
