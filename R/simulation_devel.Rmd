@@ -1,0 +1,108 @@
+---
+title: "Simulation from existing data - devel"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(brms)
+
+options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
+cache_dir <- here::here("local_temp_data")
+if(!dir.exists(cache_dir)) {
+  dir.create(cache_dir)
+}
+source(here::here("R", "pp_checks.R"))
+source(here::here("R", "mv_probit.R"))
+source(here::here("R", "simulate_data.R"))
+
+theme_set(cowplot::theme_cowplot())
+proact <- read_csv(here::here("private_data/alsfrs_proact.csv"))
+```
+
+```{r}
+any(!is.na(proact$Q5a_Cutting_without_Gastrostomy) & !is.na(proact$Q5b_Cutting_with_Gastrostomy))
+#TODO: need to resolve this
+
+proact_full <- proact %>% 
+    mutate(Q5_Cutting_Combined = if_else(is.na(Q5a_Cutting_without_Gastrostomy), 
+                                         Q5b_Cutting_with_Gastrostomy, Q5a_Cutting_without_Gastrostomy)) %>%
+    select(-Q5b_Cutting_with_Gastrostomy, -Q5a_Cutting_without_Gastrostomy, 
+           -Q10_Respiratory, -ALSFRS_Total, -Mode_of_Administration, -ALSFRS_Responded_By) %>%
+    filter(across(c(starts_with("Q"), starts_with("R")), function(x) { !is.na(x) } )) 
+
+
+question_col_names_proact <- sort(names(proact_full)[grepl("^[QR]", names(proact_full))])
+question_col_names <- sprintf("Q%02d", 1:12)
+question_col_names_translation <- sprintf("Q%02d", 1:12)
+names(question_col_names_translation) <- question_col_names_proact
+
+proact_standardized <- proact_full %>%
+    rename_with(function(x) { question_col_names_translation[x]}, .cols = all_of(question_col_names_proact)) %>%
+    rename(alsfrs_total = ALSFRS_R_Total) %>%
+    mutate(alsfrs_dly_mnths = ALSFRS_Delta / 30) %>%
+    select(subject_id, all_of(question_col_names), alsfrs_total, alsfrs_dly_mnths) 
+
+
+proact_standardized
+    
+```
+
+```{r}
+
+
+sim1 <- simulate_data_from_registry(proact_standardized,
+                                    max_duration = 365 / 30,
+                                    min_measurements_per_patient = 4,
+                                    n_patients_per_group = 100,
+                                    effect_prob = 1)
+
+sim1 %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total, group = subject_id,
+                                color = group)) +
+    geom_line(position = position_jitter(height = 0.3), alpha = 0.5)
+
+sim1 %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total - alsfrs_start, group = subject_id,
+                                color = group)) +
+    geom_line(position = position_jitter(height = 0.3), alpha = 0.5)
+
+```
+
+
+```{r}
+#Effect visible just on subset?
+
+sim1 %>% ggplot(aes(x = alsfrs_dly_mnths, y = Q01 + Q02 + Q03 + Q04, group = subject_id,
+                                color = group)) +
+    geom_line(position = position_jitter(height = 0.3), alpha = 0.5)
+
+sim1 %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total - alsfrs_start, group = subject_id,
+                                color = group)) +
+    geom_line(position = position_jitter(height = 0.3), alpha = 0.5)
+
+```
+
+
+```{r}
+
+questions_to_fit <- question_col_names[1:4]
+
+sv <- make_stanvars_mv_probit_bgoodri(questions_to_fit)
+
+proact_formula <- as.formula(paste0(
+    "mvbind(", paste0(questions_to_fit, collapse = ", "),
+    ") ~ 1 + alsfrs_dly_mnths*group + (1 | p | subject_id)"
+))
+
+data_for_fit <- sim1 %>%
+    mutate(across(all_of(question_col_names), function(x) { x + 1 }))
+
+fit_rescor_bgoodri <- brm(bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), data = data_for_fit, stanvars = sv, adapt_delta = 0.95, inits = 0.1, file = paste0(cache_dir, "/test_simul_bgoodri"))
+
+#unique(as.matrix(grouped_patients[, question_col_names]))
+
+```
+```{r}
+fit_rescor_bgoodri
+```
+
+

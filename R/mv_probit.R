@@ -63,6 +63,8 @@ make_stanvars_mv_probit_base <- function(column_names, rescor_prior_eta = 1) {
 
 make_stanvars_mv_probit_bgoodri <- function(column_names, rescor_prior_eta = 1) {
 
+  # Based on code upoaded by Ben Goodrich which uses the
+  # GHK algorithm for generating TruncMVN.
   N_dims <- length(column_names)
 
 
