@@ -53,8 +53,9 @@ proact_standardized
 
 sim1 <- simulate_data_from_registry(proact_standardized,
                                     max_duration = 365 / 30,
-                                    min_measurements_per_patient = 4,
-                                    n_patients_per_group = 100,
+                                    min_measurements_per_subject = 4,
+                                    max_measurements_per_subject = 8,
+                                    n_subjects_per_group = 50,
                                     effect_prob = 1)
 
 sim1 %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total, group = subject_id,
@@ -93,10 +94,14 @@ proact_formula <- as.formula(paste0(
     ") ~ 1 + alsfrs_dly_mnths*group + (1 | p | subject_id)"
 ))
 
+# sum_to_zero_stanvar <- stanvar(scode = 
+#                                  paste0("target += normal_lpdf(sum(z_1[", 1:length(questions_to_fit), ",]) | 0, 0.001 *N_1);\n"), block = "model")
+
+
 data_for_fit <- sim1 %>%
     mutate(across(all_of(question_col_names), function(x) { x + 1 }))
 
-fit_rescor_bgoodri <- brm(bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), data = data_for_fit, stanvars = sv, adapt_delta = 0.95, inits = 0.1, file = paste0(cache_dir, "/test_simul_bgoodri"))
+fit_rescor_bgoodri <- brm(bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), data = data_for_fit, stanvars = sv, adapt_delta = 0.95, inits = 0.1, file = paste0(cache_dir, "/test_simul_bgoodri"), file_refit = "on_change")
 
 #unique(as.matrix(grouped_patients[, question_col_names]))
 
@@ -105,4 +110,41 @@ fit_rescor_bgoodri <- brm(bf(proact_formula, family = empty_cumulative()) + set_
 fit_rescor_bgoodri
 ```
 
+
+
+```{r}
+eff_probs <- c(0.3,0.5,0.7,0.9,1)
+sims <- list()
+fits <- list()
+for(i in 1:length(eff_probs)) {
+  sims[[i]] <- simulate_data_from_registry(proact_standardized,
+                                    max_duration = 365 / 30,
+                                    min_measurements_per_subject = 4,
+                                    max_measurements_per_subject = 8,
+                                    n_subjects_per_group = 100,
+                                    effect_prob = eff_probs[i])
+  print(sims[[i]] %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total - alsfrs_start, group = subject_id,
+                                color = group)) +
+    geom_line(position = position_jitter(height = 0.3), alpha = 0.5))
+
+}
+
+```
+```{r}
+for(i in 1:length(eff_probs)) {
+  data_for_fit <- sims[[i]] %>%
+    mutate(across(all_of(question_col_names), function(x) { x + 1 }))
+  fits[[i]] <- brm(bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), data = data_for_fit, stanvars = sv + sum_to_zero_stanvar, adapt_delta = 0.95, inits = 0.1, file = paste0(cache_dir, "/test_simul_bgoodri_", i), file_refit = "on_change")
+
+}
+```
+```{r}
+for(i in 1:length(eff_probs)) {
+  cat("===== EFF Prob ", eff_probs[i], "====== \n")
+  print(fits[[i]])
+  #Next step: make predictions for the total score
+}
+
+
+```
 
