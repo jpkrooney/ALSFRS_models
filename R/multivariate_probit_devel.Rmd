@@ -6,7 +6,7 @@ source(here::here("R", "pp_checks.R"))
 source(here::here("R", "mv_probit.R"))
 source(here::here("R", "simulator_multivariate.R"))
 source(here::here("R", "sbc.R"))
-source(here::here("R", "sampling_multi.R"))
+source(here::here("R", "sampling_parallel.R"))
 source(here::here("R", "evaluation_tools.R"))
 
 options(mc.cores = parallel::detectCores() - 2, brms.backend = "cmdstanr")

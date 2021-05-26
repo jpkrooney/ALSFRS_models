@@ -190,6 +190,12 @@ make_stanvars_mv_probit_augmented <- function(column_names, rescor_prior_eta = 1
   stanvars_mult_probit
 }
 
+posterior_epred_empty_cumulative <- function(prep) {
+  prep$family$family <- "cumulative"
+  prep$family$link <- "probit"
+  brms:::posterior_epred_ordinal(prep)
+}
+
 posterior_predict_mv_probit <- function(fit, nsamples = NULL, subset = NULL, ...) {
   subset <- brms:::subset_samples(fit, subset, nsamples)
   linpred <- posterior_linpred(fit, transform = FALSE, subset = subset, ...)

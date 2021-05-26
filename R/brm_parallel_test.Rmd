@@ -1,0 +1,107 @@
+---
+title: "BRM parallel - tests"
+output: html_notebook
+---
+
+Next step: copy testing code from stanmodeldev
+
+```{r setup}
+library(tidyverse)
+library(parallel)
+library(brms)
+library(cmdstanr)
+library(rstan)
+
+options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
+cache_dir <- here::here("local_temp_data")
+if(!dir.exists(cache_dir)) {
+  dir.create(cache_dir)
+}
+source(here::here("R", "sampling_parallel.R"))
+source(here::here("R", "brm_parallel.R"))
+
+
+```
+
+
+
+```{r}
+  simple_model_code = "
+    data {
+      real x[5];
+    }
+    parameters {
+      real mu;
+    }
+    model {
+      x ~ normal(mu, 1);
+    }
+    "
+simple_model = cmdstan_model(write_stan_file(simple_model_code))
+#simple_model = stan_model(model_code = simple_model_code)
+
+  second_simple_model = cmdstan_model(write_stan_file(
+#  second_simple_model = stan_model(model_code = (
+"
+    data {
+      real x[7];
+    }
+    parameters {
+      real<lower=0> sigma;
+    }
+    model {
+      x ~ normal(0, sigma);
+    }
+    "))
+
+  
+  num_data = 10
+  per_fit_list = list()
+  for(i in 1:num_data) {
+    per_fit_list[[i]] = list(data = list(x = rnorm(5, i, 1)))
+  }
+
+  res <-  sampling_parallel(args_shared = list(model = simple_model), args_per_fit = per_fit_list, cache_dir = cache_dir, cache_fits = TRUE)
+
+  res
+```
+
+```{r}
+  per_fit_list2 <- list()
+  for(i in 1:num_data) {
+    if(i < num_data / 2) {
+        per_fit_list2[[i]] <- list(model = simple_model, data = list(x = rnorm(5, i, 1)))
+    } else {
+        per_fit_list2[[i]] <- list(model = second_simple_model, data = list(x = rnorm(7, i, 1)))
+    }
+  }
+
+  res = sampling_parallel(args_shared = list(), args_per_fit = per_fit_list2)
+
+  res
+
+```
+
+
+
+```{r}
+args_per_fit  <- list(
+    list(data = data.frame(y = rnorm(10), x = rnorm(10))),
+    list(data = data.frame(y = 3 + rnorm(5), x = rnorm(5)))
+)
+
+prior <- c(prior(normal(0, 3), class = "b"),
+           prior(normal(0, 3), class = "Intercept"))
+
+all_fits <- brm_parallel(args_shared = list(formula = y ~ x, prior = prior), args_per_fit = args_per_fit)
+all_fits
+
+
+
+```
+
+```{r}
+all_fits_sum <- brm_parallel(args_shared = list(formula = y ~ x, prior = prior, summarise_fun_args = list(prob = 0.68)), args_per_fit = args_per_fit, summarise_fun = summary)
+all_fits_sum
+```
+

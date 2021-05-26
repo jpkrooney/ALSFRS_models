@@ -3,18 +3,22 @@ title: "Simulation from existing data - devel"
 output: html_notebook
 ---
 
-```{r}
+```{r setup}
 library(tidyverse)
 library(brms)
+library(ggdist)
 
 options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
-cache_dir <- here::here("local_temp_data")
+cache_dir <- here::here("local_temp_data", "simulation_test")
 if(!dir.exists(cache_dir)) {
-  dir.create(cache_dir)
+  dir.create(cache_dir, recursive = TRUE)
 }
 source(here::here("R", "pp_checks.R"))
 source(here::here("R", "mv_probit.R"))
 source(here::here("R", "simulate_data.R"))
+source(here::here("R", "sampling_parallel.R"))
+source(here::here("R", "brm_parallel.R"))
+
 
 theme_set(cowplot::theme_cowplot())
 proact <- read_csv(here::here("private_data/alsfrs_proact.csv"))
@@ -53,8 +57,9 @@ proact_standardized
 
 sim1 <- simulate_data_from_registry(proact_standardized,
                                     max_duration = 365 / 30,
-                                    min_measurements_per_patient = 4,
-                                    n_patients_per_group = 100,
+                                    min_measurements_per_subject = 4,
+                                    max_measurements_per_subject = 8,
+                                    n_subjects_per_group = 50,
                                     effect_prob = 1)
 
 sim1 %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total, group = subject_id,
@@ -93,16 +98,86 @@ proact_formula <- as.formula(paste0(
     ") ~ 1 + alsfrs_dly_mnths*group + (1 | p | subject_id)"
 ))
 
-data_for_fit <- sim1 %>%
+# sum_to_zero_stanvar <- stanvar(scode = 
+#                                  paste0("target += normal_lpdf(sum(z_1[", 1:length(questions_to_fit), ",]) | 0, 0.001 *N_1);\n"), block = "model")
+```
+
+
+
+```{r}
+set.seed(5584324)
+
+eff_probs <- rep(c(0.3,0.5,0.7,0.9,1), times = 5)
+sims <- list()
+for(i in 1:length(eff_probs)) {
+  sims[[i]] <- simulate_data_from_registry(proact_standardized,
+                                    max_duration = 365 / 30,
+                                    min_measurements_per_subject = 4,
+                                    max_measurements_per_subject = 8,
+                                    n_subjects_per_group = 100,
+                                    effect_prob = eff_probs[i])
+  print(sims[[i]] %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total - alsfrs_start, group = subject_id,
+                                color = group)) +
+    geom_line(position = position_jitter(height = 0.3), alpha = 0.5) + ggtitle(paste0("Eff prob: ", eff_probs[i]))) 
+
+}
+
+```
+
+
+```{r}
+args_per_fit <- list()
+for(i in 1:length(eff_probs)) {
+  data_for_fit <- sims[[i]] %>%
     mutate(across(all_of(question_col_names), function(x) { x + 1 }))
+  args_per_fit[[i]] <- list(data = data_for_fit)
+}
 
-fit_rescor_bgoodri <- brm(bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), data = data_for_fit, stanvars = sv, adapt_delta = 0.95, inits = 0.1, file = paste0(cache_dir, "/test_simul_bgoodri"))
+fits <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
 
-#unique(as.matrix(grouped_patients[, question_col_names]))
 
 ```
 ```{r}
-fit_rescor_bgoodri
+for(i in 1:length(eff_probs)) {
+  cat("===== EFF Prob ", eff_probs[i], "====== \n")
+  print(fits[[i]])
+  #Next step: make predictions for the total score
+}
+
+
 ```
 
+
+```{r}
+effect_from_sim_study <- function(fit) {
+  predict_data <- data.frame(group = c("Control", "Control", "Treatment", "Treatment"),
+                             alsfrs_dly_mnths = c(0, 12, 0, 12))
+  
+  pred <- posterior_epred(fit, newdata = predict_data, re_formula = NA)
+  
+  expected_sum <- function(x) {
+    col_values <- as.integer(colnames(x))
+    multiplied <- sweep(x, MARGIN = 2, STATS = col_values, FUN = "*")
+    rowSums(multiplied)
+  }
+  
+  start_control <- expected_sum(pred[,1,])
+  end_control <- expected_sum(pred[,2,])
+  start_treatment <- expected_sum(pred[,3,])
+  end_treatment <- expected_sum(pred[,4,])
+  
+  (end_treatment - start_treatment) - (end_control - start_control)
+}
+
+all_effects <- purrr::map_df(1:length(eff_probs), 
+                             ~ data.frame(eff_prob = eff_probs[.x], estimate = effect_from_sim_study(fits[[.x]])))
+```
+
+```{r}
+all_effects %>%
+  mutate(eff_prob = factor(eff_prob)) %>%
+  ggplot(aes(x = eff_prob, y = estimate)) + 
+    geom_hline(yintercept = 0) +
+    stat_pointinterval()
+```
 
