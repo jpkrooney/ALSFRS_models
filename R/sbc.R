@@ -1,13 +1,32 @@
-sbc <- function(model, generator, N_steps, iter = 2000, ...) {
+sbc <- function(model, generator, N_steps, iter = 2000,
+                cores = getOption("mc.cores", parallel::detectCores()),
+                cache_dir = NULL,
+                ...) {
   true_list <- list()
   observed_list <- list()
+  args_per_fit <- list()
   for(i in 1:N_steps) {
     data <- generator()
     true_list[[i]] <- data$true
+    args_per_fit[[i]] <- list(data = data$observed)
     observed_list[[i]] <- data$observed
   }
 
-  fits <- sampling_multi(model, observed_list, iter = iter,...)
+  convert_to_rstan <- function(x) {
+    if(inherits(x, "stanfit")) {
+      x
+    } else if(inherits(x, "CmdStanMCMC")) {
+      rstan::read_stan_csv(x$output_files())
+    } else {
+      stop("Invalid object")
+    }
+  }
+
+
+  fits <- sampling_parallel(args_shared = list(model = model, iter = iter, ...), args_per_fit = args_per_fit,
+                         cores = cores, cache_dir = cache_dir, cache_fits = FALSE,
+                         cache_summaries = !is.null(cache_dir),
+                         summarise_fun = convert_to_rstan)
 
   param_stats <-
     fits %>% imap_dfr(function(fit, data_id) {
