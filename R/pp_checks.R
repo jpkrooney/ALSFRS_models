@@ -114,7 +114,7 @@ pp_check_cor_array <- function(predicted, actual, group = NULL, width = c(0.5, 0
 
 pp_check_cor_wide <- function(predicted, data, answer_cols, group = NULL,
                               actual_point_size = 3) {
-    actual <- data %>% select(all_of(answer_cols)) %>% as.matrix()
+    actual <- data %>% dplyr::select(all_of(answer_cols)) %>% as.matrix()
     pp_check_cor_array(predicted, actual, group, actual_point_size = actual_point_size)
 }
 

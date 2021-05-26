@@ -4,6 +4,7 @@ library(tidyverse)
 library(tableone)
 library(brms)
 library(bayesplot)
+source(here::here("R", "mv_probit.R"))
 
 options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
 cache_dir <- here::here("local_temp_data")
@@ -55,6 +56,11 @@ df_frs$dx_delay <- df_ind[ match(df_frs$ID, df_ind$ID ), ]$dx_delay
 firsts <- df_frs[ df_frs$First %in% c("First", "First & Final") ,]
 df_frs$t_first <- firsts[ match(df_frs$ID, firsts$ID), ]$alsfrs_dly_mnths
 df_frs$time_first <- df_frs$alsfrs_dly_mnths - df_frs$t_first
+
+
+# Check for and exclude rows with missing values as they can cause problems
+df_frs <- df_frs[ rowMeans( is.na(df_frs) ) ==0, ] # Note this fairly brutal screen as we don't use all the columns
+
 
 
 #############################################
@@ -205,4 +211,23 @@ fit_thresh <- brm(answer ~ alsfrs_dly_mnths + cs(question) + (1 + question | ID)
 fit_thresh
 
 
+
+## Model 6 - Multivariate probit - bgoodri's parametrization
+
+#Code based on https://github.com/stan-dev/example-models/commit/d6f0282d64382b627dfddca6b7f9a551bda3f537 and advice on Stan Discourse by @CerulloE (Thanks everybody!)
+
+sv <- make_stanvars_mv_probit_bgoodri(
+  c("Q01", "Q02", "Q03", "Q04", "Q05", "Q06"))
+
+
+fit_rescor_bgoodri <- brm(bf(
+    mvbind(Q01, Q02, Q03, Q04, Q05, Q06) ~ 1 + alsfrs_dly_mnths + (alsfrs_dly_mnths | p | ID),
+    family = empty_cumulative()) + set_rescor(FALSE),
+    file = paste0(cache_dir, "/mvprobit_bgoodri.rds"),
+    data = df_frs, stanvars = sv, adapt_delta = 0.95,
+    init = 0.005)
+
+fit_rescor_bgoodri
+
+mcmc_trace(fit_rescor_bgoodri, pars = c("b_Q01_alsfrs_dly_mnths", "b_Q02_Intercept[2]"))
 

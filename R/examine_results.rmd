@@ -33,11 +33,12 @@ fit_custom <- readRDS( paste0(cache_dir, "/ALSFRScustom.rds") )
 fit_thresh <- readRDS( paste0(cache_dir, "/ALSFRSthresh.rds") )
 fit_gauss1 <- readRDS( paste0(cache_dir, "/ALSFRSmultGauss.rds") )
 fit_gauss2 <- readRDS( paste0(cache_dir, "/ALSFRSmultGauss2.rds") )
-
+fit_mvprobit_bgood <- readRDS(paste0(cache_dir, "/mvprobit_bgoodri.rds"))
 
 # Load correlation helper functions
 source(here("R/helpfns.R"))
 source(here("R/pp_checks.R"))
+source(here("R/mv_probit.R"))
 
 # Get VarCov matrices
 #vcov_dims1 <- VarCorr(fit_dims1)
@@ -56,6 +57,7 @@ cor_multimix <- predcor_multv( fit_multimix, timevar = "alsfrs_dly_mnths" )
 cor_cratio <- predcor_cratio(frs_long, fit_cratio, timevar = "alsfrs_dly_mnths" )
 cor_custom <- predcor_dim1(frs_long, fit_custom, timevar = "alsfrs_dly_mnths")
 cor_thresh <- predcor_cratio(frs_long, fit_thresh, timevar = "alsfrs_dly_mnths" )
+cor_bgood <- predcor_multv(fit_mvprobit_bgood, timevar = "alsfrs_dly_mnths")
 
 ```
 
@@ -68,6 +70,7 @@ To recap the models were:
 - Model 3 - Using continuation ratio
 - Model 4 - Using a custom family
 - Model 5 - Threshold model
+- Model 6 - mv_probit bgoodrich version
 
 Each model had the following numbers of parameters:
 ```{r numpars, echo=FALSE}
@@ -77,6 +80,7 @@ print(paste0("Model 2 (multivariate): ", length(parnames(fit_multv))))
 print(paste0("Model 3 (cratio): ", length(parnames(fit_cratio))))
 print(paste0("Model 4 (custom): ", length(parnames(fit_custom))))
 print(paste0("Model 5 (threshold): ", length(parnames(fit_thresh))))
+print(paste0("Model 6 (mvpro_bgood): ", length(parnames(fit_mvprobit_bgood))))
 
 ```
 and the following numbers of divergences:
@@ -87,6 +91,7 @@ print(paste0("Model 2: ", get_num_divergent(fit_multv$fit)))
 print(paste0("Model 3: ", get_num_divergent(fit_cratio$fit)))
 print(paste0("Model 4: ", get_num_divergent(fit_custom$fit)))
 print(paste0("Model 5: ", get_num_divergent(fit_thresh$fit)))
+print(paste0("Model 6: ", get_num_divergent(fit_mvprobit_bgood$fit)))
 
 ```
 
@@ -104,6 +109,8 @@ print("Model 4:")
 get_elapsed_time(fit_custom$fit)
 print("Model 5:")
 get_elapsed_time(fit_thresh$fit)
+print("Model 6:")
+get_elapsed_time(fit_mvprobit_bgood$fit)
 ```
 
 
@@ -221,6 +228,19 @@ pp_check_cor_long2(model = fit_thresh, data = frs_long, answer_col = "answer", q
 
 ```
 
+
+## Model 6 - Multivariate probit - bgoodri's parametrization
+```{r mod6_bg, echo=FALSE}
+kable( cor_bgood , digits = 2, table.attr = "style='width:75%;'") 
+corrplot(cor_bgood , type = "lower")
+
+pred_rescor_bgoodri <- posterior_predict_mv_probit(fit_mvprobit_bgood)
+
+pp_check_cor_wide(pred_rescor_bgoodri, df_frs, questions, actual_point_size = 3) 
+pp_check_cor_wide(pred_rescor_bgoodri, df_frs, questions, group = as.integer(df_frs$site == "Spinal"))
+
+
+```
 
 
 
