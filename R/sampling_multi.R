@@ -46,7 +46,7 @@ sampling_multi <- function(models, data, map_fun = sampling_multi_noop, combine_
     } else {
       model = models
     }
-    if(!inherits(model, "stanmodel") && !inherits(model,"CmdStanModel")) {
+    if(!inherits(model, "stanmodel") && !inherits(model, "CmdStanModel")) {
       stop(paste0("Model for data_id ", data_id," is not of class 'stanmodel' or 'CmdStanModel'"))
     }
 
