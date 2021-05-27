@@ -7,6 +7,7 @@ output: html_notebook
 library(tidyverse)
 library(brms)
 library(ggdist)
+library(cmdstanr)
 
 options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
 cache_dir <- here::here("local_temp_data", "simulation_test")
@@ -25,6 +26,8 @@ proact <- read_csv(here::here("private_data/alsfrs_proact.csv"))
 ```
 
 ```{r}
+days_per_month <- 365.25 / 12
+
 any(!is.na(proact$Q5a_Cutting_without_Gastrostomy) & !is.na(proact$Q5b_Cutting_with_Gastrostomy))
 #TODO: need to resolve this
 
@@ -44,7 +47,7 @@ names(question_col_names_translation) <- question_col_names_proact
 proact_standardized <- proact_full %>%
     rename_with(function(x) { question_col_names_translation[x]}, .cols = all_of(question_col_names_proact)) %>%
     rename(alsfrs_total = ALSFRS_R_Total) %>%
-    mutate(alsfrs_dly_mnths = ALSFRS_Delta / 30) %>%
+    mutate(alsfrs_dly_mnths = ALSFRS_Delta / days_per_month) %>%
     select(subject_id, all_of(question_col_names), alsfrs_total, alsfrs_dly_mnths) 
 
 
@@ -56,7 +59,7 @@ proact_standardized
 
 
 sim1 <- simulate_data_from_registry(proact_standardized,
-                                    max_duration = 365 / 30,
+                                    max_duration = 12,
                                     min_measurements_per_subject = 4,
                                     max_measurements_per_subject = 8,
                                     n_subjects_per_group = 50,
@@ -111,7 +114,7 @@ eff_probs <- rep(c(0.3,0.5,0.7,0.9,1), times = 5)
 sims <- list()
 for(i in 1:length(eff_probs)) {
   sims[[i]] <- simulate_data_from_registry(proact_standardized,
-                                    max_duration = 365 / 30,
+                                    max_duration = 12,
                                     min_measurements_per_subject = 4,
                                     max_measurements_per_subject = 8,
                                     n_subjects_per_group = 100,
@@ -133,14 +136,14 @@ for(i in 1:length(eff_probs)) {
   args_per_fit[[i]] <- list(data = data_for_fit)
 }
 
-fits <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
+fits_mv_probit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
 
 
 ```
 ```{r}
 for(i in 1:length(eff_probs)) {
   cat("===== EFF Prob ", eff_probs[i], "====== \n")
-  print(fits[[i]])
+  print(fits_mv_probit[[i]])
   #Next step: make predictions for the total score
 }
 
@@ -169,15 +172,87 @@ effect_from_sim_study <- function(fit) {
   (end_treatment - start_treatment) - (end_control - start_control)
 }
 
-all_effects <- purrr::map_df(1:length(eff_probs), 
-                             ~ data.frame(eff_prob = eff_probs[.x], estimate = effect_from_sim_study(fits[[.x]])))
+all_effects_mv_probit <- purrr::map_df(1:length(eff_probs), 
+                             ~ data.frame(id = .x, type = "mv_probit", eff_prob = eff_probs[.x], estimate = effect_from_sim_study(fits_mv_probit[[.x]])))
 ```
 
 ```{r}
-all_effects %>%
+all_effects_mv_probit %>%
   mutate(eff_prob = factor(eff_prob)) %>%
-  ggplot(aes(x = eff_prob, y = estimate)) + 
+  ggplot(aes(x = eff_prob, group = id, y = estimate)) + 
     geom_hline(yintercept = 0) +
-    stat_pointinterval()
+    stat_pointinterval(position = position_dodge(width = 0.3))
+```
+```{r}
+fits_logit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = cumulative()) + set_rescor(FALSE), adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
+
+```
+```{r}
+library(lme4)
+library(splines)
+
+get_spline_coeffs <- function(x) {
+  res <- ns(x, knots = 6, Boundary.knots = c(0, 12))
+  colnames(res) <- paste0("dly_mnths_spline_", 1:ncol(res))
+  res
+}
+
+fits_lmer <- list()
+for(i in 1:length(eff_probs)) {
+  data_for_lmer <- sims[[i]]
+  data_for_lmer$alsfrs_sum_subset <-  rowSums(sims[[i]][,questions_to_fit])
+  spline_data <- ns(data_for_lmer$alsfrs_dly_mnths, 2)
+  data_for_lmer <- cbind(data_for_lmer, get_spline_coeffs(data_for_lmer$alsfrs_dly_mnths))
+  
+
+  fits_lmer[[i]] <- lme4::lmer(alsfrs_sum_subset ~ 1 + dly_mnths_spline_1*group + dly_mnths_spline_2*group +  + (dly_mnths_spline_1 + dly_mnths_spline_2|subject_id), data = data_for_lmer)
+}
+
+
+```
+
+```{r}
+effect_from_lmer <- function(fit) {
+  # Estimating conf ints. for a linear combination
+  # Based on https://bookdown.org/ccolonescu/RPoE4/intervalest.html
+  vc <- vcov(fit)
+  
+  spline_coeffs_0 <- get_spline_coeffs(0)
+  spline_coeffs_12 <- get_spline_coeffs(12)
+  spline_coeffs_diff <- spline_coeffs_12 - spline_coeffs_0
+  
+  lincomb <- rep(0, nrow(vc))
+  names(lincomb) <- rownames(vc)
+  lincomb["groupTreatment"] <- 1
+  lincomb["dly_mnths_spline_1:groupTreatment"] <- spline_coeffs_diff[1]
+  lincomb["groupTreatment:dly_mnths_spline_2"] <- spline_coeffs_diff[2]
+  
+  alpha <- c(0.5, 0.05)
+  estimate <- as.numeric(lincomb %*% fit@beta)
+  df <- df.residual(fit)
+  tcr <- qt(1-alpha/2, df)
+  estimate_se <- as.numeric(sqrt( lincomb %*% (vc %*% lincomb)))
+  lower <- estimate - tcr*estimate_se
+  upper <- estimate + tcr*estimate_se
+  data.frame(estimate = estimate, lower95 = lower[2], lower50 = lower[1], upper50 = upper[1],
+             upper95 = upper[2])
+}
+
+all_effects_lmer <- purrr::map_df(1:length(eff_probs), 
+                             ~ cbind(data.frame(id = .x, type = "lmer4", eff_prob = eff_probs[.x], effect_from_lmer(fits_lmer[[.x]]))))
+
+
+```
+```{r}
+all_effects_lmer %>%
+  mutate(eff_prob = factor(eff_prob)) %>%
+  ggplot(aes(x = eff_prob, group = id)) + 
+    geom_hline(yintercept = 0) +
+    geom_linerange(aes(ymin = lower50, ymax = upper50), size = 2, position = position_dodge(width = 0.3)) +
+    geom_linerange(aes(ymin = lower95, ymax = upper95), position = position_dodge(width = 0.3))
+
+```
+```{r}
+
 ```
 
