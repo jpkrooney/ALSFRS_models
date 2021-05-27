@@ -1,0 +1,175 @@
+---
+title: "Examine_results 12Q"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tableone)
+library(brms)
+library(bayesplot)
+library(rstan)
+library(corrplot)
+library(here)
+library(kableExtra)
+
+cache_dir <- here("local_temp_data")
+
+# Load data
+df_frs <- readRDS(here("Data/long_format_wide12Qs.RDS"))
+frs_long <- readRDS(here("Data/long_format_long12Qs.RDS"))
+
+
+# Load models
+fit_mvprob12Q <- readRDS(paste0(cache_dir, "/mvprobit_bgoodri_12Qs.rds"))
+
+# Load correlation helper functions
+source(here("R/helpfns.R"))
+source(here("R/pp_checks.R"))
+source(here("R/mv_probit.R"))
+
+
+questions <- c("Q01", "Q02", "Q03", "Q04", "Q05", "Q06",
+               "Q07", "Q08", "Q09", "Q10", "Q11", "Q12")
+
+# Get correlations using helper function
+# need to modify this to alllow subsets of data
+cor_bgood <- predcor_multv(fit_mvprob12Q, timevar = "alsfrs_dly_mnths")
+
+```
+
+The model had the following numbers of parameters:
+```{r numpars, echo=FALSE}
+print(paste0("Model 6 (mvpro_bgood): ", length(parnames(fit_mvprob12Q))))
+
+```
+and the following numbers of divergences:
+```{r divs, echo=FALSE}
+print(paste0("Model 6: ", get_num_divergent(fit_mvprob12Q$fit)))
+
+```
+
+lets look at a traceplot or 2:
+```{r trace}
+
+mcmc_trace(fit_mvprob12Q, pars = c("b_Q01_Intercept[3]", "b_Q07_alsfrs_dly_mnths",
+                                   "cor_ID__Q06_Intercept__Q08_alsfrs_dly_mnths",
+                                   "r_1[74,20]","Rescor[10,12]"))
+
+
+```
+
+
+The times for warmup and sampling for each chain of the models were:
+```{r times, echo=FALSE}
+print("Model 6:")
+get_elapsed_time(fit_mvprob12Q$fit)
+```
+
+
+
+## Model 6 - Multivariate probit - bgoodri's parametrization
+```{r mod6_bg, echo=FALSE}
+kable( cor_bgood , digits = 2, table.attr = "style='width:75%;'") 
+corrplot(cor_bgood , type = "lower")
+
+pred_rescor_bgoodri <- posterior_predict_mv_probit(fit_mvprob12Q)
+
+pp_check_cor_wide(pred_rescor_bgoodri, df_frs, questions, actual_point_size = 3) 
+pp_check_cor_wide(pred_rescor_bgoodri, df_frs, questions, group = as.integer(df_frs$site == "Spinal"))
+
+
+```
+
+How many rows (individuals) in the data ?
+```{r nobs}
+nrow(df_frs)
+```
+
+
+Let's look at the fixed effects:
+```{r fixef}
+summ_fixef <- fixef(fit_mvprob12Q) %>% 
+    data.frame()
+summ_fixef$param <- row.names(summ_fixef)
+row.names(summ_fixef) <- NULL
+
+summ_fixef <- summ_fixef %>% 
+    dplyr::select(param, Estimate, Est.Error, Q2.5, Q97.5)
+
+#
+# summarise the intercepts
+summ_fixef %>%
+    filter( grepl( "Intercept", summ_fixef$param, fixed = TRUE) ) %>% 
+    kable(digits = 2)
+
+
+
+#summarise the slopes
+summ_fixef %>%
+    filter( grepl( "alsfrs_dly_mnths", summ_fixef$param, fixed = TRUE) ) %>% 
+    kable(digits = 2)
+
+# summarise the age covar
+summ_fixef %>%
+    filter( grepl( "age_dx", summ_fixef$param, fixed = TRUE) ) %>% 
+    kable(digits = 2)
+
+# summarise the dx_delay covar
+summ_fixef %>%
+    filter( grepl( "dx_delay", summ_fixef$param, fixed = TRUE) ) %>% 
+    kable(digits = 2)
+
+
+```
+
+
+
+How does longitudinal total score compare to raw total score ?
+```{r ppc_long}
+
+temp <- apply(pred_rescor_bgoodri, c(2, 3), mean) # can make this faster
+temp2 <- rowSums(temp) - 12 # -12 because 1 added to every question
+df_frs$fit <- temp2
+
+ggplot(df_frs, aes(x=Total, y = fit)) + geom_point() +
+    coord_fixed() + facet_wrap(~site) +
+    geom_abline(slope=1, intercept=0)
+```
+
+How would this compare to an lmer model as would traditionally do ?
+```{r}
+library(lme4)
+library(splines)
+mm1 <- lmer(Total ~ ns(alsfrs_dly_mnths,2) + (ns(alsfrs_dly_mnths,2)|ID),
+            df_frs)
+
+df_frs$fit_lmer <- predict(mm1)
+
+ggplot(df_frs, aes(x=Total, y = fit_lmer)) + geom_point() +
+    coord_fixed() + facet_wrap(~site) +
+    geom_abline(slope=1, intercept=0)                        
+                           
+```
+
+
+## Compare fit over time
+```{r time_byfit}
+# raw data
+ggplot(df_frs, aes(x = alsfrs_dly_mnths, y = Total, group=ID)) + geom_line() +
+    facet_wrap(~site)
+
+# raw data + fit
+ggplot(df_frs, aes(x = alsfrs_dly_mnths, y = Total, group=ID)) + geom_line() +
+    geom_line(aes(y = fit, col="mv_probit")) +
+    geom_line(aes(y = fit_lmer, col="lme4")) +
+    facet_wrap(~site)
+
+
+```
+
+
+
