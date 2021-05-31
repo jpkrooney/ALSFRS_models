@@ -8,6 +8,7 @@ library(tidyverse)
 library(brms)
 library(ggdist)
 library(cmdstanr)
+library(patchwork)
 
 options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
 cache_dir <- here::here("local_temp_data", "simulation_test")
@@ -177,16 +178,40 @@ all_effects_mv_probit <- purrr::map_df(1:length(eff_probs),
 ```
 
 ```{r}
-all_effects_mv_probit %>%
+shared_range <- c(-3.5, 4.5)
+plot_mv_probit <- all_effects_mv_probit %>%
   mutate(eff_prob = factor(eff_prob)) %>%
   ggplot(aes(x = eff_prob, group = id, y = estimate)) + 
     geom_hline(yintercept = 0) +
-    stat_pointinterval(position = position_dodge(width = 0.3))
+    stat_pointinterval(position = position_dodge(width = 0.3)) + 
+    expand_limits(y = shared_range) +
+    ggtitle("MV probit") 
+
+plot_mv_probit
 ```
 ```{r}
 fits_logit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = cumulative()) + set_rescor(FALSE), adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
 
+all_effects_logit <- purrr::map_df(1:length(eff_probs), 
+                             ~ data.frame(id = .x, type = "logit", eff_prob = eff_probs[.x], estimate = effect_from_sim_study(fits_logit[[.x]])))
+
+
 ```
+
+```{r}
+
+plot_logit <- all_effects_logit %>%
+  mutate(eff_prob = factor(eff_prob)) %>%
+  ggplot(aes(x = eff_prob, group = id, y = estimate)) + 
+    geom_hline(yintercept = 0) +
+    stat_pointinterval(position = position_dodge(width = 0.3)) + 
+    expand_limits(y = shared_range) +
+    ggtitle("Logit")
+
+plot_logit
+```
+## Lme4 splines
+
 ```{r}
 library(lme4)
 library(splines)
@@ -197,7 +222,7 @@ get_spline_coeffs <- function(x) {
   res
 }
 
-fits_lmer <- list()
+fits_lmer_splines <- list()
 for(i in 1:length(eff_probs)) {
   data_for_lmer <- sims[[i]]
   data_for_lmer$alsfrs_sum_subset <-  rowSums(sims[[i]][,questions_to_fit])
@@ -205,14 +230,14 @@ for(i in 1:length(eff_probs)) {
   data_for_lmer <- cbind(data_for_lmer, get_spline_coeffs(data_for_lmer$alsfrs_dly_mnths))
   
 
-  fits_lmer[[i]] <- lme4::lmer(alsfrs_sum_subset ~ 1 + dly_mnths_spline_1*group + dly_mnths_spline_2*group +  + (dly_mnths_spline_1 + dly_mnths_spline_2|subject_id), data = data_for_lmer)
+  fits_lmer_splines[[i]] <- lme4::lmer(alsfrs_sum_subset ~ 1 + dly_mnths_spline_1*group + dly_mnths_spline_2*group +  + (dly_mnths_spline_1 + dly_mnths_spline_2|subject_id), data = data_for_lmer)
 }
 
 
 ```
 
 ```{r}
-effect_from_lmer <- function(fit) {
+effect_from_lmer_splines <- function(fit) {
   # Estimating conf ints. for a linear combination
   # Based on https://bookdown.org/ccolonescu/RPoE4/intervalest.html
   vc <- vcov(fit)
@@ -238,21 +263,116 @@ effect_from_lmer <- function(fit) {
              upper95 = upper[2])
 }
 
-all_effects_lmer <- purrr::map_df(1:length(eff_probs), 
-                             ~ cbind(data.frame(id = .x, type = "lmer4", eff_prob = eff_probs[.x], effect_from_lmer(fits_lmer[[.x]]))))
+all_effects_lmer_splines <- purrr::map_df(1:length(eff_probs), 
+                             ~ cbind(data.frame(id = .x, type = "lmer4_splines", eff_prob = eff_probs[.x], effect_from_lmer_splines(fits_lmer_splines[[.x]]))))
 
 
 ```
 ```{r}
-all_effects_lmer %>%
+plot_lmer_splines <- all_effects_lmer_splines %>%
   mutate(eff_prob = factor(eff_prob)) %>%
   ggplot(aes(x = eff_prob, group = id)) + 
     geom_hline(yintercept = 0) +
-    geom_linerange(aes(ymin = lower50, ymax = upper50), size = 2, position = position_dodge(width = 0.3)) +
-    geom_linerange(aes(ymin = lower95, ymax = upper95), position = position_dodge(width = 0.3))
+    geom_linerange(aes(ymin = lower50, ymax = upper50), size = 1.2, position = position_dodge(width = 0.3)) +
+    geom_linerange(aes(ymin = lower95, ymax = upper95), position = position_dodge(width = 0.3)) +
+    geom_point(aes(y = estimate), position = position_dodge(width = 0.3), size = 3) +
+    expand_limits(y = shared_range) +
+    ggtitle("Lme4 splines")
+
+plot_lmer_splines
+```
+
+## Lme4 simple
+
+```{r}
+library(lme4)
+library(splines)
+
+fits_lmer_simple <- list()
+for(i in 1:length(eff_probs)) {
+  data_for_lmer <- sims[[i]]
+  data_for_lmer$alsfrs_sum_subset <-  rowSums(sims[[i]][,questions_to_fit])
+
+#  fits_lmer_simple[[i]] <- lme4::lmer(alsfrs_sum_subset ~ 1 + alsfrs_dly_mnths*group+ (1 + alsfrs_dly_mnths|subject_id), data = data_for_lmer)
+  fits_lmer_simple[[i]] <- lme4::lmer(alsfrs_sum_subset ~ 1 + alsfrs_dly_mnths*group+ (1 |subject_id), data = data_for_lmer)
+}
+
+
+```
+
+
+
+```{r}
+effect_from_lmer_simple <- function(fit) {
+  # Estimating conf ints. for a linear combination
+  # Based on https://bookdown.org/ccolonescu/RPoE4/intervalest.html
+  vc <- vcov(fit)
+  
+
+  lincomb <- rep(0, nrow(vc))
+  names(lincomb) <- rownames(vc)
+  lincomb["groupTreatment"] <- 1
+  lincomb["alsfrs_dly_mnths:groupTreatment"] <- 12
+
+  alpha <- c(0.5, 0.05)
+  estimate <- as.numeric(lincomb %*% fit@beta)
+  df <- df.residual(fit)
+  tcr <- qt(1-alpha/2, df)
+  estimate_se <- as.numeric(sqrt( lincomb %*% (vc %*% lincomb)))
+  lower <- estimate - tcr*estimate_se
+  upper <- estimate + tcr*estimate_se
+  data.frame(estimate = estimate, lower95 = lower[2], lower50 = lower[1], upper50 = upper[1],
+             upper95 = upper[2])
+}
+
+all_effects_lmer_simple <- purrr::map_df(1:length(eff_probs), 
+                             ~ cbind(data.frame(id = .x, type = "lmer4_simple", eff_prob = eff_probs[.x], effect_from_lmer_simple(fits_lmer_simple[[.x]]))))
+
 
 ```
 ```{r}
+all_effects_lmer_simple %>%
+  mutate(eff_prob = factor(eff_prob)) %>%
+  ggplot(aes(x = eff_prob, group = id)) + 
+    geom_hline(yintercept = 0) +
+    geom_linerange(aes(ymin = lower50, ymax = upper50), size = 1.2, position = position_dodge(width = 0.3)) +
+    geom_linerange(aes(ymin = lower95, ymax = upper95), position = position_dodge(width = 0.3)) +
+    geom_point(aes(y = estimate), position = position_dodge(width = 0.3), size = 3) +
+    expand_limits(y = shared_range) +
+    ggtitle("Lme4 simple")
 
 ```
+
+## Joint plot
+
+```{r, fig.width=10}
+summarise_brms <- function(all_effects) {
+  all_effects %>% group_by(type, eff_prob, id) %>%
+    summarise(lower95 = quantile(estimate, 0.025),
+              lower50 = quantile(estimate, 0.25),
+              upper50 = quantile(estimate, 0.75),
+              upper95 = quantile(estimate, 0.975),
+              estimate = mean(estimate),
+              .groups = "drop")
+}
+
+my_pos <- position_dodge(width = 0.5)
+
+rbind(summarise_brms(all_effects_logit),
+      summarise_brms(all_effects_mv_probit),
+      all_effects_lmer_splines,
+      all_effects_lmer_simple) %>%
+    mutate(eff_prob = factor(eff_prob)) %>%
+  ggplot(aes(x = factor(id), group = interaction(id, type), color = type)) + 
+    geom_hline(yintercept = 0) +
+    geom_linerange(aes(ymin = lower50, ymax = upper50), size = 1.2, position = my_pos) +
+    geom_linerange(aes(ymin = lower95, ymax = upper95), position = my_pos) +
+    geom_point(aes(y = estimate), position = my_pos, size = 3) +
+    facet_wrap(~eff_prob, scales = "free", ncol = 2) +
+    theme(axis.title.x = element_blank(), axis.text.x = element_blank())
+
+```
+
+
+
 
