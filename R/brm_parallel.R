@@ -42,7 +42,7 @@ brm_parallel <- function(args_shared, args_per_fit,
             if(backend == "rstan") {
                 stan_args$model <- rstan::stan_model(model_code = stancode)
             } else if(backend == "cmdstanr"){
-                stan_args$model <- cmdstanr::cmdstan_model(write_stan_file(stancode))
+                stan_args$model <- cmdstanr::cmdstan_model(cmdstanr::write_stan_file(stancode))
             } else {
                 stop("Unrecognized backend")
             }
