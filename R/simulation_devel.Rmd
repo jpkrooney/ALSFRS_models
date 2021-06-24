@@ -169,7 +169,7 @@ for(i in 1:length(eff_probs)) {
 # fits_mv_probit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
 
 
-summaries_mv_probit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE, summarise_fun = effect_from_sim_study, total_cores = 1)
+summaries_mv_probit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE, summarise_fun = effect_from_sim_study)
 
 ```
 ```{r}
