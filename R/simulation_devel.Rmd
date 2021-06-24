@@ -93,7 +93,15 @@ sim1 %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total - alsfrs_start, group
 
 ```{r}
 
-questions_to_fit <- question_col_names[1:4]
+# Setting for simulations done early
+#questions_to_fit <- question_col_names[1:4]
+#n_subjects_per_group <- 100
+#eff_probs <- rep(c(0.3,0.5,0.7,0.9,1), times = 5)
+
+
+questions_to_fit <- question_col_names
+n_subjects_per_group <- 200
+eff_probs <- rep(c(0.5,0.55,0.6,0.65,0.7), times = 5)
 
 sv <- make_stanvars_mv_probit_bgoodri(questions_to_fit)
 
@@ -111,14 +119,13 @@ proact_formula <- as.formula(paste0(
 ```{r}
 set.seed(5584324)
 
-eff_probs <- rep(c(0.3,0.5,0.7,0.9,1), times = 5)
 sims <- list()
 for(i in 1:length(eff_probs)) {
   sims[[i]] <- simulate_data_from_registry(proact_standardized,
                                     max_duration = 12,
                                     min_measurements_per_subject = 4,
                                     max_measurements_per_subject = 8,
-                                    n_subjects_per_group = 100,
+                                    n_subjects_per_group = n_subjects_per_group,
                                     effect_prob = eff_probs[i])
   print(sims[[i]] %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total - alsfrs_start, group = subject_id,
                                 color = group)) +
@@ -127,30 +134,6 @@ for(i in 1:length(eff_probs)) {
 }
 
 ```
-
-
-```{r}
-args_per_fit <- list()
-for(i in 1:length(eff_probs)) {
-  data_for_fit <- sims[[i]] %>%
-    mutate(across(all_of(question_col_names), function(x) { x + 1 }))
-  args_per_fit[[i]] <- list(data = data_for_fit)
-}
-
-fits_mv_probit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
-
-
-```
-```{r}
-for(i in 1:length(eff_probs)) {
-  cat("===== EFF Prob ", eff_probs[i], "====== \n")
-  print(fits_mv_probit[[i]])
-  #Next step: make predictions for the total score
-}
-
-
-```
-
 
 ```{r}
 effect_from_sim_study <- function(fit) {
@@ -172,19 +155,52 @@ effect_from_sim_study <- function(fit) {
   
   (end_treatment - start_treatment) - (end_control - start_control)
 }
+```
+
+
+```{r}
+args_per_fit <- list()
+for(i in 1:length(eff_probs)) {
+  data_for_fit <- sims[[i]] %>%
+    mutate(across(all_of(question_col_names), function(x) { x + 1 }))
+  args_per_fit[[i]] <- list(data = data_for_fit)
+}
+
+# fits_mv_probit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
+
+
+summaries_mv_probit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE, summarise_fun = effect_from_sim_study, total_cores = 1)
+
+```
+```{r}
+for(i in 1:length(eff_probs)) {
+  cat("===== EFF Prob ", eff_probs[i], "====== \n")
+  print(fits_mv_probit[[i]])
+  #Next step: make predictions for the total score
+}
+
+
+```
+
+
+```{r}
+
+
+# all_effects_mv_probit <- purrr::map_df(1:length(eff_probs), 
+#                              ~ data.frame(id = .x, type = "mv_probit", eff_prob = eff_probs[.x], estimate = effect_from_sim_study(fits_mv_probit[[.x]])))
 
 all_effects_mv_probit <- purrr::map_df(1:length(eff_probs), 
-                             ~ data.frame(id = .x, type = "mv_probit", eff_prob = eff_probs[.x], estimate = effect_from_sim_study(fits_mv_probit[[.x]])))
+                             ~ data.frame(id = .x, type = "mv_probit", eff_prob = eff_probs[.x], estimate = summaries_mv_probit[[.x]]))
+
 ```
 
 ```{r}
-shared_range <- c(-3.5, 4.5)
 plot_mv_probit <- all_effects_mv_probit %>%
   mutate(eff_prob = factor(eff_prob)) %>%
   ggplot(aes(x = eff_prob, group = id, y = estimate)) + 
     geom_hline(yintercept = 0) +
     stat_pointinterval(position = position_dodge(width = 0.3)) + 
-    expand_limits(y = shared_range) +
+#    expand_limits(y = shared_range) +
     ggtitle("MV probit") 
 
 plot_mv_probit
@@ -205,7 +221,7 @@ plot_logit <- all_effects_logit %>%
   ggplot(aes(x = eff_prob, group = id, y = estimate)) + 
     geom_hline(yintercept = 0) +
     stat_pointinterval(position = position_dodge(width = 0.3)) + 
-    expand_limits(y = shared_range) +
+    #expand_limits(y = shared_range) +
     ggtitle("Logit")
 
 plot_logit
@@ -276,7 +292,7 @@ plot_lmer_splines <- all_effects_lmer_splines %>%
     geom_linerange(aes(ymin = lower50, ymax = upper50), size = 1.2, position = position_dodge(width = 0.3)) +
     geom_linerange(aes(ymin = lower95, ymax = upper95), position = position_dodge(width = 0.3)) +
     geom_point(aes(y = estimate), position = position_dodge(width = 0.3), size = 3) +
-    expand_limits(y = shared_range) +
+    #expand_limits(y = shared_range) +
     ggtitle("Lme4 splines")
 
 plot_lmer_splines
@@ -338,7 +354,7 @@ all_effects_lmer_simple %>%
     geom_linerange(aes(ymin = lower50, ymax = upper50), size = 1.2, position = position_dodge(width = 0.3)) +
     geom_linerange(aes(ymin = lower95, ymax = upper95), position = position_dodge(width = 0.3)) +
     geom_point(aes(y = estimate), position = position_dodge(width = 0.3), size = 3) +
-    expand_limits(y = shared_range) +
+    #expand_limits(y = shared_range) +
     ggtitle("Lme4 simple")
 
 ```
