@@ -7,7 +7,7 @@ simulate_data_from_registry <- function(standardized_data,
     n_subjects <- n_subjects_per_group * 2
     #TODO add time from diagnosis, don't always filter on dly_mnts > 0
     selected_data <- standardized_data %>%
-        filter(alsfrs_dly_mnths >= 0 && alsfrs_dly_mnths < max_duration) %>%
+        filter(alsfrs_dly_mnths >= 0, alsfrs_dly_mnths < max_duration) %>%
         group_by(subject_id) %>%
         filter(n() >= min_measurements_per_subject) %>%
         ungroup() %>%
