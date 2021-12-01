@@ -74,6 +74,7 @@ An approach that looks appealing, but is IMHO wrong is to model between-question
 $$
 Y_{n} \sim F(\mu_{n}, \Sigma)
 $$
+
 where $\mu_n$ and $Y_n$ are the whole vectors over all questions and $\Sigma$ is some form of correlation structure.
 
 I think we don't want this because we expect the repeated observations from the same patient over time to preserve the noise structure. E.g. assuming there is a negative correlation between bulbar and motor subscores in early disease, we would expect a patient that starts higher than average on bulbar subscore and also lower than average on the motor subscore to also be more likely in the same extremes when measured later (relative to average of patients at the later progression time). However, if there are other reasons to prefer this approach, I find it likely that it would be possible to implement it as a (hacky and weird) custom response distribution in `brms` by packing all the 12 answers into one integer, but I didn't try to actually do it.
@@ -85,6 +86,7 @@ $$
 \beta_{q,k} = \eta_k + u_{q,k} \\
 u_{,k} \sim MVN(0, \Sigma)
 $$
+
 Where $\eta_k$ is the "main" effect and $u_{q,k}$ are the "interaction" effects. 
 It would also make sense to decompose $\Sigma$ into sds and  a correlation matrix and have the correlation matrix shared across all effects.
 
@@ -272,7 +274,8 @@ f <- bf(mvbind(q1,q2,q3) ~ 1 + time_from_diagnosis, family = empty_cumulative())
 # 
 # fit_thres_rescor_augmented <- model$sample(data = model_data, chains = 4)
 
-fit_thres_rescor_augmented <- brm(f, data = simple_test, stanvars = sv_augmented)
+fit_thres_rescor_augmented <- brm(f, data = simple_test, stanvars = sv_augmented,
+                                  file = file.path(cache_dir, "cumulative_thresh_rescor_approx.rds"), file_refit = "on_change")
 fit_thres_rescor_augmented
 ```
 ```{r}
@@ -307,7 +310,7 @@ sv <- make_stanvars_mv_probit_bgoodri(
 # 
 # stancode
 
-fit_rescor_bgoodri <- brm(bf(mvbind(q1,q2,q3) ~ 1 + time_from_diagnosis, family = empty_cumulative()) + set_rescor(FALSE), data = simple_test, stanvars = sv, adapt_delta = 0.95)
+fit_rescor_bgoodri <- brm(bf(mvbind(q1,q2,q3) ~ 1 + time_from_diagnosis, family = empty_cumulative()) + set_rescor(FALSE), data = simple_test, stanvars = sv, adapt_delta = 0.95, file = file.path(cache_dir, "rescor_bgoodri"), file_refit = "on_change")
 
 ```
 
