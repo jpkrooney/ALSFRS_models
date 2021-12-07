@@ -10,7 +10,7 @@ library(ggdist)
 library(cmdstanr)
 library(patchwork)
 
-options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
+options(mc.cores = 8, brms.backend = "cmdstanr")
 cache_dir <- here::here("local_temp_data", "simulation_test")
 if(!dir.exists(cache_dir)) {
   dir.create(cache_dir, recursive = TRUE)

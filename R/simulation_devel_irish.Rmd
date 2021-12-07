@@ -253,7 +253,7 @@ library(lme4)
 library(splines)
 
 get_spline_coeffs <- function(x) {
-  res <- ns(x, knots = 12, Boundary.knots = c(0, 12))
+  res <- ns(x, knots = 6, Boundary.knots = c(0, 36))
   colnames(res) <- paste0("dly_mnths_spline_", 1:ncol(res))
   res
 }

@@ -22,9 +22,11 @@ cache_dir <- here("local_temp_data")
 df_frs <- readRDS(here("Data/long_format_wide12Qs.RDS"))
 frs_long <- readRDS(here("Data/long_format_long12Qs.RDS"))
 
+# Load survival data
+df_ind <- read.csv(here("Data/casedata.csv"), stringsAsFactors = FALSE)
 
 # Load models
-fit_mvprob12Q <- readRDS(paste0(cache_dir, "/mvprobit_bgoodri_12Qs.rds"))
+fit_mvprob12Q <- readRDS(paste0(cache_dir, "/mvprobit_bgoodri_12Qsfulldata.rds"))
 
 # Load correlation helper functions
 source(here("R/helpfns.R"))
@@ -114,14 +116,14 @@ summ_fixef %>%
     kable(digits = 2)
 
 # summarise the age covar
-summ_fixef %>%
-    filter( grepl( "age_dx", summ_fixef$param, fixed = TRUE) ) %>% 
-    kable(digits = 2)
-
-# summarise the dx_delay covar
-summ_fixef %>%
-    filter( grepl( "dx_delay", summ_fixef$param, fixed = TRUE) ) %>% 
-    kable(digits = 2)
+#summ_fixef %>%
+#    filter( grepl( "age_dx", summ_fixef$param, fixed = TRUE) ) %>% 
+#    kable(digits = 2)
+#
+## summarise the dx_delay covar
+#summ_fixef %>%
+#    filter( grepl( "dx_delay", summ_fixef$param, fixed = TRUE) ) %>% 
+#    kable(digits = 2)
 
 
 ```
@@ -131,13 +133,25 @@ summ_fixef %>%
 How does longitudinal total score compare to raw total score ?
 ```{r ppc_long}
 
-temp <- apply(pred_rescor_bgoodri, c(2, 3), mean) # can make this faster
-temp2 <- rowSums(temp) - 12 # -12 because 1 added to every question
-df_frs$fit <- temp2
+#temp <- apply(pred_rescor_bgoodri, c(2, 3), mean) # original wrong way
+#temp2 <- rowSums(temp) - 12 # -12 because 1 added to every question
+#temp <- apply(pred_rescor_bgoodri, c(1,2), sum) # there are faster ways to do this...
+#microbenchmark::microbenchmark(
+#  temp1 <- apply(pred_rescor_bgoodri, c(1,2), sum),
+#  temp2 <- rowSums(pred_rescor_bgoodri, dims=2),
+#  times=10)
+#all(temp1 == temp2) # looks good and 44 times faster
+temp <- rowSums( pred_rescor_bgoodri, dims=2) - 12 # -12 because 1 added to every question
+df_frs$fit_mvprob <- colMeans( temp ) 
+# get credible intervals
+library(matrixStats)
+df_frs <- data.frame( df_frs, colQuantiles(temp, probs = c(0.025, 0.975)) )
+names(df_frs)[ names(df_frs) %in% c("X2.5.", "X97.5.") ] <- c("mvprob_fit_lo", "mvprob_fit_hi")
 
-ggplot(df_frs, aes(x=Total, y = fit)) + geom_point() +
+ggplot(df_frs, aes(x=Total, y = fit_mvprob)) + geom_point() +
     coord_fixed() + facet_wrap(~site) +
     geom_abline(slope=1, intercept=0)
+
 ```
 
 How would this compare to an lmer model as would traditionally do ?
@@ -146,14 +160,33 @@ library(lme4)
 library(splines)
 mm1 <- lmer(Total ~ ns(alsfrs_dly_mnths,2) + (ns(alsfrs_dly_mnths,2)|ID),
             df_frs)
-
 df_frs$fit_lmer <- predict(mm1)
+# bootstrap for CI
+boots = 200
+bbb <- bootMer(mm1, FUN=function(x) predict(x, df_frs, re.form=NULL), nsim=boots,
+                 parallel = "multicore", ncpus=4)
+df_frs <- data.frame(df_frs, colQuantiles(bbb$t, probs = c(0.025, 0.975)))
+names(df_frs)[ names(df_frs) %in% c("X2.5.", "X97.5.") ] <- c("lmer_fit_lo", "lmer_fit_hi")
+
+
 
 ggplot(df_frs, aes(x=Total, y = fit_lmer)) + geom_point() +
     coord_fixed() + facet_wrap(~site) +
     geom_abline(slope=1, intercept=0)                        
                            
 ```
+
+
+
+## How do confidence/credible intervals look for each model ?
+```{r uncertainties}
+summary(df_frs[, c("fit_mvprob", "mvprob_fit_lo", "mvprob_fit_hi", 
+                   "fit_lmer", "lmer_fit_lo", "lmer_fit_hi")])
+
+
+```
+
+Note that the lmer predictions include random effects - can turn this off for a marginal fit which would probably give less wild CI
 
 
 ## Compare fit over time
@@ -164,12 +197,51 @@ ggplot(df_frs, aes(x = alsfrs_dly_mnths, y = Total, group=ID)) + geom_line() +
 
 # raw data + fit
 ggplot(df_frs, aes(x = alsfrs_dly_mnths, y = Total, group=ID)) + geom_line() +
-    geom_line(aes(y = fit, col="mv_probit")) +
+    geom_line(aes(y = fit_mvprob, col="mv_probit")) +
     geom_line(aes(y = fit_lmer, col="lme4")) +
     facet_wrap(~site)
 
 
 ```
 
+## How does a joint model compare?
+```{r jm1, eval = FALSE, echo = FALSE}
+library(JMbayes)
+
+# Note for a small number of still alive patients, there are longitudinal measurements after the censor time - this is because I updated the longitudinal data more recently than the survival data. Requires a fix elsewhere. For now as a quick fix will remoe the longitudinal measurements after the last censor time for those folks
+df_frs$censor_time <- df_ind[ match(df_frs$ID, df_ind$ID), ]$alt_surv_mnths
+nrow(df_frs)
+df_frs <- df_frs[df_frs$alsfrs_dly_mnths <= df_frs$censor_time,]
+nrow(df_frs)
+
+df_ind <- df_ind[ df_ind$ID %in% df_frs$ID, ]
+df_ind$censor <- ifelse(df_ind$alt_vital == "Died", 1, 0)
+# JMBayes is fussy about order so sort both dfs
+df_ind <- df_ind[ order(df_ind$ID), ]
+df_frs <- df_frs[ order(df_frs$ID, df_frs$alsfrs_dly_mnths), ]
+
+# Survival model
+cox1 <- coxph(Surv(alt_surv_mnths + 0.0001, censor) ~ age_dx, df_ind, x = TRUE, model = TRUE)
+# needs lme for mixed model
+lme1 <- lme(fixed = Total ~ ns(alsfrs_dly_mnths, 2),
+            random = ~ ns(alsfrs_dly_mnths, 2)|ID,
+            df_frs, control = lmeControl(msMaxIter = 200))
+
+jm1 <- jointModelBayes(lme1, cox1, timeVar = "alsfrs_dly_mnths")
+
+jmpreds <- predict(jm1, df_frs, idVar = "ID", interval = "confidence",
+        returnData = FALSE, M = 200, FtTimes = df_frs$alsfrs_dly_mnths)
+df_frs$fit_jm <- jmpreds$pred
+df_frs$jm_fit_lo <- jmpreds$low
+df_frs$jm_fit_hi <- jmpreds$upp
+# Note,I *think* I've done this correctly
+
+ggplot(df_frs, aes(x=Total, y = fit_jm)) + geom_point() +
+    coord_fixed() + facet_wrap(~site) +
+    geom_abline(slope=1, intercept=0)                        
+
+
+
+```
 
 

@@ -66,8 +66,8 @@ df_frs <- df_frs[ rowMeans( is.na(df_frs) ) ==0, ] # Note this fairly brutal scr
 #############################################
 # Minimise the data size  for test purposes ####
 # Take 15% of individuals
-samp <- sample(df_ind$ID, size = nrow(df_ind) * 0.15, replace = FALSE)
-df_frs <- df_frs[df_frs$ID %in% samp, ]
+#samp <- sample(df_ind$ID, size = nrow(df_ind) * 0.15, replace = FALSE)
+#df_frs <- df_frs[df_frs$ID %in% samp, ]
 # Will only use Q1 to Q6
 #df_frs <- df_frs[ , !names(df_frs) %in% c("Q07", "Q08", "Q09", "Q10", "Q11", "Q12")]
 
@@ -96,7 +96,7 @@ fit_rescor_bgoodri <- brm(bf(
     mvbind(Q01, Q02, Q03, Q04, Q05, Q06,
            Q07, Q08, Q09, Q10, Q11, Q12) ~ 1 + alsfrs_dly_mnths + (alsfrs_dly_mnths | p | ID),
     family = empty_cumulative()) + set_rescor(FALSE),
-    file = paste0(cache_dir, "/mvprobit_bgoodri_12Qs.rds"),
+    file = paste0(cache_dir, "/mvprobit_bgoodri_12Qsfulldata.rds"),
     file_refit = "on_change",
     data = df_frs, stanvars = sv, adapt_delta = 0.95,
     init = 0.005)
