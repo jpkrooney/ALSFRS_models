@@ -141,7 +141,7 @@ fit_mult_nocor <- brm(
     family = cumulative("logit"),
     file = paste0(cache_dir, "/ALSFRSmult_nocor.rds"),
     cores = 4, threads = threading(threads))
-f  it_mult_nocor
+fit_mult_nocor
 
 
 # Variation of multivariate model

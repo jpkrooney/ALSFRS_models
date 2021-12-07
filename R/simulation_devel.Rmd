@@ -226,6 +226,7 @@ plot_logit <- all_effects_logit %>%
 
 plot_logit
 ```
+
 ## Lme4 splines
 
 ```{r}

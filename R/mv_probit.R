@@ -197,7 +197,7 @@ posterior_epred_empty_cumulative <- function(prep) {
 }
 
 posterior_predict_mv_probit <- function(fit, nsamples = NULL, subset = NULL, ...) {
-  subset <- brms:::subset_samples(fit, subset, nsamples)
+  subset <- brms:::validate_draw_ids(fit, subset, nsamples)
   linpred <- posterior_linpred(fit, transform = FALSE, subset = subset, ...)
 
   prep <- prepare_predictions(fit, subset = subset, ...)
@@ -207,8 +207,8 @@ posterior_predict_mv_probit <- function(fit, nsamples = NULL, subset = NULL, ...
 
   rescor <- get_rescor(fit, size = N_dims, subset = subset)
 
-  out <- array(NA_integer_, c(prep$nsamples, prep$nobs, N_dims))
-  for(s in seq_len(prep$nsamples)) {
+  out <- array(NA_integer_, c(prep$ndraws, prep$nobs, N_dims))
+  for(s in seq_len(prep$ndraws)) {
     for(o in seq_len(prep$nobs)) {
         mu_noise <- brms::rmulti_normal(1, mu = linpred[s, o, ], Sigma = rescor[s, , ])
         for(resp_id in 1:N_dims) {
@@ -221,7 +221,7 @@ posterior_predict_mv_probit <- function(fit, nsamples = NULL, subset = NULL, ...
 }
 
 get_rescor <- function(fit, size, subset = NULL) {
-  rescor  <- as.matrix(fit, pars = "^rescor\\[", subset = subset)
+  rescor  <- as.matrix(fit, variable = "^rescor\\[", regex = TRUE, subset = subset)
 
   nsamples <- dim(rescor)[1]
   out <- array(NA_real_, dim = c(nsamples, size, size))
@@ -264,14 +264,14 @@ rmulti_normal_custom <- function (mu, Sigma, check = FALSE)
 
 
 posterior_predict_mv_probit2 <- function(fit, nsamples = NULL, subset = NULL, ...) {
-  subset <- brms:::subset_samples(fit, subset, nsamples)
+  subset <- brms:::validate_draw_ids(fit, subset, nsamples)
   linpred <- posterior_linpred(fit, transform = FALSE, subset = subset, ...)
   prep <- prepare_predictions(fit, subset = subset, ...)
   N_dims <- length(prep$resps)
   rescor <- get_rescor(fit, size = N_dims, subset = subset)
 
-  out <- array(NA_integer_, c(prep$nsamples, prep$nobs, N_dims))
-  for(s in seq_len(prep$nsamples)) {
+  out <- array(NA_integer_, c(prep$ndraws, prep$nobs, N_dims))
+  for(s in seq_len(prep$ndraws)) {
     mu_noise <- rmulti_normal_custom(mu = linpred[s, , ], Sigma = rescor[s, , ])
     for(resp_id in 1:N_dims) {
       thres <- prep$resps[[resp_id]]$thres
