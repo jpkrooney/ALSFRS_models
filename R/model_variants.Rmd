@@ -115,6 +115,15 @@ fit_multivariate
 ```
 
 ```{r}
+bayesplot::mcmc_pairs(fit_multivariate, regex_pars = c("r_patient__q1.*[1-3]", "b_q1_Intercept"))
+
+
+bayesplot::mcmc_pairs(fit_multivariate, regex_pars = c("r_patient__q1.*[2]", "b_q1_Intercept.[2-3]"))
+
+```
+
+
+```{r}
 pred_multivariate <- posterior_predict(fit_multivariate)
 pp_check_cor_wide(pred_multivariate, simple_test, paste0("q", 1:3))
 pp_check_cor_wide(pred_multivariate, simple_test, paste0("q", 1:3), group = rep(1:2, length.out = 21))
@@ -233,7 +242,8 @@ fit_thres_rescor_approx <- brm(bf(
     prior(constant(10), class = "Intercept", dpar = "disc")
   ),
   data = simple_test_long, 
-  file = paste0(cache_dir, "/cumulative_thresh_rescor_approx.rds"), refresh = 0
+  file = paste0(cache_dir, "/cumulative_thresh_rescor_approx.rds"), refresh = 0,
+  file_refit = "on_change"
   )
 
 
@@ -275,7 +285,7 @@ f <- bf(mvbind(q1,q2,q3) ~ 1 + time_from_diagnosis, family = empty_cumulative())
 # fit_thres_rescor_augmented <- model$sample(data = model_data, chains = 4)
 
 fit_thres_rescor_augmented <- brm(f, data = simple_test, stanvars = sv_augmented,
-                                  file = file.path(cache_dir, "cumulative_thresh_rescor_approx.rds"), file_refit = "on_change")
+                                  file = file.path(cache_dir, "cumulative_thresh_rescor_augmented.rds"), file_refit = "on_change")
 fit_thres_rescor_augmented
 ```
 ```{r}
