@@ -14,7 +14,7 @@ theme_set(cowplot::theme_cowplot())
 #bounded_sigmoid <- 
 
 func_data <- function(f, label) {
-    f_data <- data.frame(time = seq(0,1, length.out = 200), label = label)
+    f_data <- data.frame(time = seq(0,1, length.out = 1000), label = label)
     f_data$f <- f(f_data$time)
     
     N_thres <- 20
@@ -33,23 +33,28 @@ func_data <- function(f, label) {
 
 all_func_data <- list(
     func_data(function(x) 1-x, "Uniform"),
-    func_data(function(x) 1 - x^2.5, "Progressive"),
-    func_data(function(x) { 1 / (1 + (1/x - 1) ^ -2) }, "Sigmoid")
-    
-)
+    func_data(function(x) { 1 / (1 + (1/x - 1) ^ -2) }, "Sigmoid"),
+    func_data(function(x) 1 - x^2.5, "Accelerating"),
+    func_data(function(x) 1 - x^(0.55), "Deccelerating")
+) 
 
-all_true <- purrr::map_dfr(all_func_data, function(x) x$true)
-all_observed <- purrr::map_dfr(all_func_data, function(x) x$observed)
-all_thresholds <- purrr::map_dfr(all_func_data, function(x) x$thresholds)
+label_to_fct <- function(x) {
+    mutate(x, label = factor(label, levels = c("Uniform", "Sigmoid", "Accelerating", "Deccelerating")))
+}
+
+all_true <- purrr::map_dfr(all_func_data, function(x) x$true) %>%  label_to_fct()
+all_observed <- purrr::map_dfr(all_func_data, function(x) x$observed) %>%  label_to_fct()
+all_thresholds <- purrr::map_dfr(all_func_data, function(x) x$thresholds) %>%  label_to_fct()
 
 
 time_scale <- scale_x_continuous("Time", breaks = c())
-facet <- facet_wrap(~label)
+facet <- facet_wrap(~label, nrow = 1)
 p_progression <- ggplot(aes(x = time, y = f), data = all_true) + geom_line(size = 2, color = "orangered") +
     geom_hline(aes(yintercept = threshold), data = all_thresholds, color = "darkgray") + time_scale +
     scale_y_continuous("Biological function", breaks = c(0,1), labels = c("Death", "No damage")) + facet
 
-p_observed <- ggplot(aes(x= time, y = score), data = all_observed) + geom_line(color = "darkblue") + time_scale + facet
+p_observed <- ggplot(aes(x= time, y = score), data = all_observed) + geom_line(color = "darkblue") + time_scale + facet +
+    scale_y_continuous("Score")
 
 p_progression / p_observed
 
