@@ -5,7 +5,9 @@ output: html_document
 
 ```{r setup, message=FALSE, warning = FALSE, results = "hide"}
 library(brms)
-library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
 source(here::here("R", "pp_checks.R"))
 source(here::here("R", "mv_probit.R"))
 options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
