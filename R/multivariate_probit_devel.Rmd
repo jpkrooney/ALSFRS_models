@@ -112,8 +112,8 @@ summarise_sbc_diagnostics(sbc_res)
 # Bgoodri's
 
 ```{r}
-single_test <- generator_multivariate_probit_bgoodri(N_obs = 1000, N_cat = 5, N_dim = 12)
-#single_test <- generator_multivariate_probit_bgoodri(N_obs = 100, N_cat = 3, N_dim = 4)
+#single_test <- generator_multivariate_probit_bgoodri(N_obs = 1000, N_cat = 5, N_dim = 12)
+single_test <- generator_multivariate_probit_bgoodri(N_obs = 100, N_cat = 3, N_dim = 4)
 
 model_single <- cmdstan_model(write_stan_file(single_test$stancode))
 
@@ -121,7 +121,7 @@ model_single <- cmdstan_model(write_stan_file(single_test$stancode))
 ```
 
 ```{r}
-cmdstan_fit <- model_single$sample(data = single_test$observed, adapt_delta = 0.95, init = 0.001)
+cmdstan_fit <- model_single$sample(data = single_test$observed, adapt_delta = 0.8, init = 0.001)
 fit <- rstan::read_stan_csv(cmdstan_fit$output_files())
 
 evaluation_summary(fit, single_test$true)
