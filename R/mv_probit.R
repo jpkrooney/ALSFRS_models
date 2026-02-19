@@ -34,7 +34,7 @@ make_stanvars_mv_probit_base <- function(column_names, rescor_prior_eta = 1) {
     ")
 
   stan_thresholds <- paste0("
-         vector[N_thres] thresholds[", N_dims, "];",
+         array [", N_dims, "] vector[N_thres] thresholds;",
                             paste0("
          thresholds[", 1:N_dims, "] = Intercept_", column_names, ";", collapse = "")
     )
@@ -86,13 +86,13 @@ make_stanvars_mv_probit_bgoodri <- function(column_names, rescor_prior_eta = 1) 
 
 
   stan_params <- paste0("
-      real<lower=0, upper=1> u[N, ", N_dims, "]; // raw residuals
+      array[N, ", N_dims, "] real<lower=0, upper=1> u; // raw residuals
     ")
 
   stan_likelihood <- paste0("
        for(n in 1:N) {
-            real mus[", N_dims, "] = {", paste0("mu_", column_names, "[n]", collapse = ", "), "};
-            int Ys[", N_dims, "] = {", paste0("Y_", column_names, "[n]", collapse = ", "), "};
+            array[", N_dims, "] real mus = {", paste0("mu_", column_names, "[n]", collapse = ", "), "};
+            array[", N_dims, "] int Ys = {", paste0("Y_", column_names, "[n]", collapse = ", "), "};
 
             vector[", N_dims, "] z;
             real prev;
@@ -156,14 +156,14 @@ make_stanvars_mv_probit_augmented <- function(column_names, rescor_prior_eta = 1
           real diff = thresholds[observed]  - thresholds[observed - 1];
           real inv_logit_z = inv_logit(z);
           //target += log(diff) + log(inv_logit_z) + log1m(inv_logit_z);
-          target += log(diff) - fabs(z) + 2.0 * log1p_exp(-fabs(z));
+          target += log(diff) - abs(z) + 2.0 * log1p_exp(-abs(z));
           return(lb + diff * inv_logit_z);
         }
       }
     "
 
   stan_params <- paste0("
-      real z_rescor[N, ", N_dims, "]; // raw residuals
+      array[N, ", N_dims, "] real z_rescor; // raw residuals
     ")
 
 
@@ -172,7 +172,7 @@ make_stanvars_mv_probit_augmented <- function(column_names, rescor_prior_eta = 1
 
   stan_likelihood <- paste0("
         {
-          vector[", N_dims, "] residuals[N];
+          array[N] vector[", N_dims, "] residuals;
           for(n in 1:N) {
               ", constrain_residuals_code , "
           }
