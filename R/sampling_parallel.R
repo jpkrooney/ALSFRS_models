@@ -205,7 +205,7 @@ sampling_parallel <- function(args_shared, args_per_fit,
           }
           fit <- do.call(model$sample, args = translated_args)
           if(convert_cmdstan_fits_to_rstan) {
-            fit <- rstan::read_stan_csv(fit$output_files())
+            fit <- brms::read_csv_as_stanfit(fit$output_files())
             if(!is.null(cache_dir) && cache_fits) {
               saveRDS(fit, fit_cache_file)
             }
