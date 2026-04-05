@@ -50,7 +50,7 @@ irldat_standardized <- irldat_full
 
 
 
-M <- 100
+M <- 5
 set.seed(99)
 
 questions_to_fit <- question_col_names
@@ -118,8 +118,10 @@ nutfits <- ls_standat |>
                        cores = 4,
                        refresh = 0,
                        seed = 60471,
-                       init_mean = 0) |>
-             trim_pars(pars = "u"), # exclude nuisance pars to save memory
+                       init_mean = 0,
+                       pars = "u",
+                       include = FALSE), #|>
+             #trim_pars(pars = "u"), # exclude nuisance pars to save memory
          .progress = TRUE, .options = furrr_options(seed = 123))
 plan(sequential)
 
@@ -153,9 +155,9 @@ brmsfits6 <- readRDS(paste0(cache_dir, "/", "20260402_nutpiemvprobit_fits_30mnth
 
 
 #### define an effect function ####
-effect_from_sim_study <- function(fit) {
+effect_from_sim_study <- function(fit, time1, time2) {
     predict_data <- data.frame(group = c("Control", "Control", "Treatment", "Treatment"),
-                               alsfrs_dly_mnths = c(0, 12, 0, 12))
+                               alsfrs_dly_mnths = c(time1, time2, time1, time2))
 
     pred <- posterior_epred(fit, newdata = predict_data, re_formula = NA)
 

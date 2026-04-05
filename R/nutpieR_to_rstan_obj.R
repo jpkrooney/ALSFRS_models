@@ -1,28 +1,28 @@
 
-
-trim_pars <- function(nutfit, pars, exclude = TRUE){
-    allpars <- attributes(nutfit)$dimnames[[3]]
-    dims <- attributes(nutfit)$dim
-
-    idx <- lapply(1:length(pars), function(i) {
-        pat <- paste("^", pars[i], "(\\[(\\d+,)*\\d+\\])*$", sep = "")
-        grepl(pat, allpars) }) |>
-        bind_cols() |>
-        rowMeans() > 0
-
-    # If exclude = TRUE invert index
-    if (exclude == TRUE) { idx <- !idx}
-
-    # Apply the exclusions to nutfit
-    trimfit <- nutfit[ , , idx ]
-
-    attributes(trimfit)$diagnostics <- attributes(nutfit)$diagnostics
-    attributes(trimfit)$num_chains <- attributes(nutfit)$num_chains
-    attributes(trimfit)$num_warmup <- attributes(nutfit)$num_warmup
-    attributes(trimfit)$num_draws <- attributes(nutfit)$num_draws
-
-    return(trimfit)
-}
+# function not needed anymore ad now built into nutpieR
+#trim_pars <- function(nutfit, pars, exclude = TRUE){
+#    allpars <- attributes(nutfit)$dimnames[[3]]
+#    dims <- attributes(nutfit)$dim
+#
+#    idx <- lapply(1:length(pars), function(i) {
+#        pat <- paste("^", pars[i], "(\\[(\\d+,)*\\d+\\])*$", sep = "")
+#        grepl(pat, allpars) }) |>
+#        bind_cols() |>
+#        rowMeans() > 0
+#
+#    # If exclude = TRUE invert index
+#    if (exclude == TRUE) { idx <- !idx}
+#
+#    # Apply the exclusions to nutfit
+#    trimfit <- nutfit[ , , idx ]
+#
+#    attributes(trimfit)$diagnostics <- attributes(nutfit)$diagnostics
+#    attributes(trimfit)$num_chains <- attributes(nutfit)$num_chains
+#    attributes(trimfit)$num_warmup <- attributes(nutfit)$num_warmup
+#    attributes(trimfit)$num_draws <- attributes(nutfit)$num_draws
+#
+#    return(trimfit)
+#}
 
 
 
