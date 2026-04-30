@@ -21,7 +21,7 @@ simulate_data_from_registry <- function(standardized_data,
     subsampled_data <- selected_data %>%
         group_by(subject_id) %>%
         mutate(            is_first = alsfrs_dly_mnths == min(alsfrs_dly_mnths),
-                           is_last = alsfrs_dly_mnths == min(alsfrs_dly_mnths)
+                           is_last = alsfrs_dly_mnths == max(alsfrs_dly_mnths)
         ) %>%
         group_by(subject_id, is_first, is_last) %>%
         sample_n(min(max_measurements_per_subject - 2, n())) %>%

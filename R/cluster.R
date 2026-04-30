@@ -1,5 +1,7 @@
 setup_cluster <- function(max_local_workers = Inf, max_server_workers = 140, force = FALSE) {
-  is_local <- parallelly::availableCores() < 80
+  # parallel::detectCores() includes cores unavailable to the docker container
+  # while parallelly::availableCores() does not
+  is_local <- parallel::detectCores() < 80
   if(is_local) {
     n_workers <- min(parallelly::availableCores(), max_local_workers)
     # future::plan(multisession, workers = n_workers)
