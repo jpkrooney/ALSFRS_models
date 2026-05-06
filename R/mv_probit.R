@@ -2,7 +2,8 @@ empty_cumulative <- function() {
   custom_family(
     "empty_cumulative", dpars = c("mu"),
     links = c("identity"), lb = 1,
-    type = "int", threshold = "flexible", specials = c("ordinal", "ordered_thres", "thres_minus_eta"))
+    type = "int", threshold = "flexible", specials = c("ordinal", "ordered_thres", "thres_minus_eta"),
+    posterior_epred = posterior_epred_empty_cumulative)
 }
 
 make_stanvars_mv_probit_base <- function(column_names, rescor_prior_eta = 1) {
