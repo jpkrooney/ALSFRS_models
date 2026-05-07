@@ -10,3 +10,5 @@ R/examine_results.pdf
 R/ALSFRS_data_prep.R
 
 *.nb.html
+.positai
+*_files/
