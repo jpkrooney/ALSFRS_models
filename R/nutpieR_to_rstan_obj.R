@@ -112,6 +112,17 @@ nutpieR_to_rstan_obj <- function(nutfit, stanmodel){
 
 
 
+nutpie_to_brms <- function(form, dat, model, fit, family, stanvars = NULL){
+    emptybrms <- brm(bf(form, family = family) +
+                         set_rescor(FALSE), stanvars = stanvars, adapt_delta = 0.95, init = 0.1,
+                     data = dat, empty = TRUE)
+    #
+    rstanobj <- nutpieR_to_rstan_obj(fit, model)
+    brmsfit <- emptybrms
+    brmsfit$fit <- rstanobj
+    brmsfit <- rename_pars(brmsfit)
+    brmsfit
+}
 
 
 

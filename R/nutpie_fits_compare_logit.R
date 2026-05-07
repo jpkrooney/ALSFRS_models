@@ -3,7 +3,7 @@ library(brms)
 library(ggdist)
 library(rstan)
 library(patchwork)
-#library(mori)
+library(mori)
 library(furrr)
 library(nutpieR)
 
@@ -51,7 +51,7 @@ irldat_standardized <- irldat_full
 
 
 
-M <- 2
+M <- 100
 set.seed(99)
 
 questions_to_fit <- question_col_names
@@ -221,125 +221,112 @@ plan(sequential)
 
 
 
-##plan(multisession, workers=8)
-#brmsfits <- future_map(1:length(eff_probs), \(i) {
-brmsfits <- lapply(1: length(eff_probs), function(i) {
-        # currently need to fit empty obejcts for each fit - this is slow
-        #emptyrstan <- rstan::sampling(stanmodel, data = ls_standat[[i]],
-        #                          chains = 4, iter = 1, cores = 4, refresh = 0,
-        #                          init = 0.0, control = list(adapt_delta = 0.95))
-        emptybrms <- brm(bf(irldat_formula, family = empty_cumulative()) +
-                         set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1,
-                     data = ls_dat[[i]], empty = TRUE)
-        #
-        rstanobj <- nutpieR_to_rstan_obj(nutfits[[i]], stanmodel1)
-        brmsfit <- emptybrms
-        brmsfit$fit <- rstanobj
-        brmsfit <- rename_pars(brmsfit)
-        brmsfit}) #, .progress = TRUE, .options = furrr_options(seed = 123))
+#### convert fits to brms and save results ####
+# set filename pars
+stem1 <- "_nutpiefit_"
+brmsfits1 <- lapply(1: length(eff_probs), function(i) {
+    nutpie_to_brms(irldat_formula, ls_dat[[i]], model = stanmodel1,
+                   fit = nutfits1[[i]], family = empty_cumulative(),
+                   stanvars = sv)
+    })
+saveRDS(brmsfits1, paste0(cache_dir, "/", Sys.Date(), stem1, "_mvprobit1_m", M,".RDS"))
 
-saveRDS(brmsfits, paste0(cache_dir, "/", "20260402_nutpiemvprobit_min3scores.RDS"))
+brmsfits2 <- lapply(1: length(eff_probs), function(i) {
+    nutpie_to_brms(irldat_formula2, ls_dat[[i]], model = stanmodel2,
+                   fit = nutfits2[[i]], family = empty_cumulative(),
+                   stanvars = sv)
+})
+saveRDS(brmsfits2, paste0(cache_dir, "/", Sys.Date(), stem1, "_mvprobit2_m", M,".RDS"))
 
+brmsfits3 <- lapply(1: length(eff_probs), function(i) {
+    nutpie_to_brms(irldat_formula, ls_dat[[i]], model = stanmodel3,
+                   fit = nutfits3[[i]], family = cumulative(),
+                   stanvars = NULL)
+})
+saveRDS(brmsfits3, paste0(cache_dir, "/", Sys.Date(), stem1, "_logit1_m", M,".RDS"))
 
-###### Reload fits for plotting ######
-brmsfits1 <- readRDS(paste0(cache_dir, "/", "20260402_nutpiemvprobit_fits_18mnths_n50.RDS"))
-brmsfits2 <- readRDS(paste0(cache_dir, "/", "20260402_nutpiemvprobit_fits_24mnths_n50.RDS"))
-brmsfits3 <- readRDS(paste0(cache_dir, "/", "20260402_nutpiemvprobit_fits_30mnths_n50.RDS"))
-brmsfits4 <- readRDS(paste0(cache_dir, "/", "20260402_nutpiemvprobit_fits_18mnths_n50_no_p.RDS"))
-brmsfits5 <- readRDS(paste0(cache_dir, "/", "20260402_nutpiemvprobit_fits_24mnths_n50_no_p.RDS"))
-brmsfits6 <- readRDS(paste0(cache_dir, "/", "20260402_nutpiemvprobit_fits_30mnths_n50_no_p.RDS"))
+brmsfits4 <- lapply(1: length(eff_probs), function(i) {
+    nutpie_to_brms(irldat_formula2, ls_dat[[i]], model = stanmodel4,
+                   fit = nutfits4[[i]], family = cumulative(),
+                   stanvars = NULL)
+})
+saveRDS(brmsfits4, paste0(cache_dir, "/", Sys.Date(), stem1, "_logit2_m", M,".RDS"))
 
+# reload brmsfits
 
-#### define an effect function ####
-effect_from_sim_study <- function(fit, time1, time2) {
-    predict_data <- data.frame(group = c("Control", "Control", "Treatment", "Treatment"),
-                               alsfrs_dly_mnths = c(time1, time2, time1, time2))
-
-    pred <- posterior_epred(fit, newdata = predict_data, re_formula = NA)
-
-    expected_sum <- function(x) {
-        col_values <- as.integer(colnames(x))
-        multiplied <- sweep(x, MARGIN = 2, STATS = col_values, FUN = "*")
-        rowSums(multiplied)
-    }
-
-    start_control <- expected_sum(pred[,1,])
-    end_control <- expected_sum(pred[,2,])
-    start_treatment <- expected_sum(pred[,3,])
-    end_treatment <- expected_sum(pred[,4,])
-
-    (end_treatment - start_treatment) - (end_control - start_control)
-}
 
 
 #### Summarise effects ####
+
+brmsfits1 <- share(brmsfits1)
+brmsfits2 <- share(brmsfits2)
+brmsfits3 <- share(brmsfits3)
+brmsfits4 <- share(brmsfits4)
+
+method1 <- "predicted"
+plan(multisession, workers=10)
 summaries_mv_probit1 <- brmsfits1 |>
-    map(\(fit) effect_from_sim_study(fit))
+    future_map(\(fit) effect_from_sim_study(fit, 0, 12, timevar = "alsfrs_dly_mnths",
+                                     method = method1 , model = "mv-probit"),
+               .progress = TRUE, .options = furrr_options(seed = 123))
 summaries_mv_probit2 <- brmsfits2 |>
-    map(\(fit) effect_from_sim_study(fit))
-summaries_mv_probit3 <- brmsfits3 |>
-    map(\(fit) effect_from_sim_study(fit))
-summaries_mv_probit4 <- brmsfits4 |>
-    map(\(fit) effect_from_sim_study(fit))
-summaries_mv_probit5 <- brmsfits5 |>
-    map(\(fit) effect_from_sim_study(fit))
-summaries_mv_probit6 <- brmsfits6 |>
-    map(\(fit) effect_from_sim_study(fit))
+    future_map(\(fit) effect_from_sim_study(fit, 0, 12, timevar = "time2",
+                                     method = method1 , model = "mv-probit"),
+               .progress = TRUE, .options = furrr_options(seed = 123))
+summaries_logit1 <- brmsfits3 |>
+    future_map(\(fit) effect_from_sim_study(fit, 0, 12, timevar = "alsfrs_dly_mnths",
+                                     method = method1 , model = "logit"),
+               .progress = TRUE, .options = furrr_options(seed = 123))
+summaries_logit2 <- brmsfits4 |>
+    future_map(\(fit) effect_from_sim_study(fit, 0, 12, timevar = "time2",
+                                     method = method1 , model = "logit"),
+               .progress = TRUE, .options = furrr_options(seed = 123))
+plan(sequential)
 
-all_effects_mv_probit1 <- purrr::map_df(1:length(eff_probs),
-                                       ~ data.frame(id = .x, type = "mv_probit",
-                                                    eff_prob = 0.5, estimate = summaries_mv_probit1[[.x]],
-                                                    maxdelay = "18", lab = "p"))
-all_effects_mv_probit2 <- purrr::map_df(1:length(eff_probs),
-                                        ~ data.frame(id = .x, type = "mv_probit",
-                                                     eff_prob = 0.5, estimate = summaries_mv_probit2[[.x]],
-                                                     maxdelay = "24", lab = "p"))
-all_effects_mv_probit3 <- purrr::map_df(1:length(eff_probs),
-                                        ~ data.frame(id = .x, type = "mv_probit",
-                                                     eff_prob = 0.5, estimate = summaries_mv_probit3[[.x]],
-                                                     maxdelay = "30", lab = "p"))
-all_effects_mv_probit4 <- purrr::map_df(1:length(eff_probs),
-                                        ~ data.frame(id = .x, type = "mv_probit",
-                                                     eff_prob = 0.5, estimate = summaries_mv_probit4[[.x]],
-                                                     maxdelay = "18", lab = "no p"))
-all_effects_mv_probit5 <- purrr::map_df(1:length(eff_probs),
-                                        ~ data.frame(id = .x, type = "mv_probit",
-                                                     eff_prob = 0.5, estimate = summaries_mv_probit5[[.x]],
-                                                     maxdelay = "24", lab = "no p"))
-all_effects_mv_probit6 <- purrr::map_df(1:length(eff_probs),
-                                        ~ data.frame(id = .x, type = "mv_probit",
-                                                     eff_prob = 0.5, estimate = summaries_mv_probit6[[.x]],
-                                                     maxdelay = "30", lab = "no p"))
 
-all_effects_mv_probit <- bind_rows(all_effects_mv_probit1,
-                                   all_effects_mv_probit2,
-                                   all_effects_mv_probit3,
-                                   all_effects_mv_probit4,
-                                   all_effects_mv_probit5,
-                                   all_effects_mv_probit6)
+summ_mvprob1 <- map_df(1:length(eff_probs),
+                       ~ data.frame(id = .x, type = "mv-probit",
+                                    eff_prob = eff_probs[[.x]], estimate = summaries_mv_probit1[[.x]],
+                                    lab = "real time"))
+summ_mvprob2 <- map_df(1:length(eff_probs),
+                       ~ data.frame(id = .x, type = "mv-probit",
+                                    eff_prob = eff_probs[[.x]], estimate = summaries_mv_probit2[[.x]],
+                                    lab = "relative time"))
+summ_logit1 <- map_df(1:length(eff_probs),
+                       ~ data.frame(id = .x, type = "logit",
+                                    eff_prob = eff_probs[[.x]], estimate = summaries_logit1[[.x]],
+                                    lab = "real time"))
+summ_logit2 <- map_df(1:length(eff_probs),
+                      ~ data.frame(id = .x, type = "logit",
+                                   eff_prob = eff_probs[[.x]], estimate = summaries_logit2[[.x]],
+                                   lab = "relative time"))
+
+
+all_effects_mv_probit <- bind_rows(summ_mvprob1,
+                                   summ_mvprob2,
+                                   summ_logit1,
+                                   summ_logit2)
 
 
 summs <- all_effects_mv_probit |>
-    group_by(id, maxdelay, lab) |>
-    summarise(#eff_prob = unique(eff_prob),
+    summarise(.by = c(id, type, lab),
+              #eff_prob = unique(eff_prob),
               q_025 = quantile(estimate, 0.025),
               mean = mean(estimate),
               q_975 = quantile(estimate, 0.975),
-              flag1 = ifelse(q_025 < 0 & q_975 >0, 1, 0)) |>
-    group_by(maxdelay, lab) |>
-    summarise(coverage = mean(flag1, na.rm = TRUE)) |>
-    arrange(lab, maxdelay)
+              flag1 = ifelse(q_025 > 0 | q_975 < 0, 1, 0)) |>
+    summarise(.by = c(type, lab),
+              type1error = mean(flag1, na.rm = TRUE)) |>
+    arrange(lab)
 summs
 
-
 plot_mv_probit <- all_effects_mv_probit %>%
-    mutate(eff_prob = factor(eff_prob),
-           maxdelay = factor(maxdelay)) %>%
+    mutate(eff_prob = factor(eff_prob)) %>%
     ggplot(aes(x =  id, y = estimate)) +
     geom_hline(yintercept = 0) +
     stat_pointinterval(position = position_dodge(width = 0.3)) +
     #    expand_limits(y = shared_range) +
-    ggtitle("MV probit") + facet_wrap(~ maxdelay + lab, ncol = 2)
+    ggtitle("Full predictions") + facet_wrap(~ type + lab, ncol = 2)
 
 plot_mv_probit
 
