@@ -4,10 +4,7 @@ output: html_notebook
 ---
 
 ```{r setup}
-library(dplyr)
-library(tidyr)
-library(readr)
-library(ggplot2)
+library(tidyverse)
 library(brms)
 library(ggdist)
 library(cmdstanr)
@@ -25,47 +22,62 @@ source(here::here("R", "sampling_parallel.R"))
 source(here::here("R", "brm_parallel.R"))
 
 
-theme_set(theme_minimal())
-proact <- read_csv(here::here("private_data/alsfrs_proact.csv"))
+theme_set(cowplot::theme_cowplot())
+irldat <- read_csv(here::here("Data/longdata.csv"))
 ```
 
 ```{r}
-days_per_month <- 365.25 / 12
+#days_per_month <- 365.25 / 12
 
-any(!is.na(proact$Q5a_Cutting_without_Gastrostomy) & !is.na(proact$Q5b_Cutting_with_Gastrostomy) &
-      proact$Q5a_Cutting_without_Gastrostomy != proact$Q5b_Cutting_with_Gastrostomy)
+#any(!is.na(irldat$Q5a_Cutting_without_Gastrostomy) & !is.na(irldat$Q5b_Cutting_with_Gastrostomy))
 #TODO: need to resolve this
 
-proact_full <- proact %>% 
-    mutate(Q5_Cutting_Combined = if_else(is.na(Q5a_Cutting_without_Gastrostomy), 
-                                         Q5b_Cutting_with_Gastrostomy, Q5a_Cutting_without_Gastrostomy)) %>%
-    select(-Q5b_Cutting_with_Gastrostomy, -Q5a_Cutting_without_Gastrostomy, 
-           -Q10_Respiratory, -ALSFRS_Total, -Mode_of_Administration, -ALSFRS_Responded_By) %>%
-    filter(if_all(c(starts_with("Q"), starts_with("R")), function(x) { !is.na(x) } )) 
+irldat_full <- irldat %>% 
+  rename("subject_id" = "ID",
+         "Q01" = "ALSFRS_Q1",
+         "Q02" = "ALSFRS_Q2",
+         "Q03" = "ALSFRS_Q3",
+         "Q04" = "ALSFRS_Q4",
+         "Q05" = "ALSFRS_Q5",
+         "Q06" = "ALSFRS_Q6",
+         "Q07" = "ALSFRS_Q7",
+         "Q08" = "ALSFRS_Q8",
+         "Q09" = "ALSFRS_Q9",
+         "Q10" = "ALSFRS_Q10",
+         "Q11" = "ALSFRS_Q11",
+         "Q12" = "ALSFRS_Q12",
+         "alsfrs_total" = "Total") %>% 
+  dplyr::select(subject_id, alsfrs_dly_mnths, Q01, Q02, Q03, Q04, Q05, Q06,
+                Q07, Q08, Q09, Q10, Q11, Q12, alsfrs_total)
+#    mutate(Q5_Cutting_Combined = if_else(is.na(Q5a_Cutting_without_Gastrostomy), 
+#                                         Q5b_Cutting_with_Gastrostomy, Q5a_Cutting_without_Gastrostomy)) %>%
+#    select(-Q5b_Cutting_with_Gastrostomy, -Q5a_Cutting_without_Gastrostomy, 
+#           -Q10_Respiratory, -ALSFRS_Total, -Mode_of_Administration, -ALSFRS_Responded_By) %>%
+#    filter(across(c(starts_with("Q"), starts_with("R")), function(x) { !is.na(x) } )) 
 
 
-question_col_names_proact <- sort(names(proact_full)[grepl("^[QR]", names(proact_full))])
+question_col_names_irldat <- sort(names(irldat_full)[grepl("^[QR]", names(irldat_full))])
 question_col_names <- sprintf("Q%02d", 1:12)
 question_col_names_translation <- sprintf("Q%02d", 1:12)
-names(question_col_names_translation) <- question_col_names_proact
+names(question_col_names_translation) <- question_col_names_irldat
+#
+#irldat_standardized <- irldat_full %>%
+#    rename_with(function(x) { question_col_names_translation[x]}, .cols = #all_of(question_col_names_irldat)) %>%
+#    rename(alsfrs_total = ALSFRS_R_Total) %>%
+#    mutate(alsfrs_dly_mnths = ALSFRS_Delta / days_per_month) %>%
+#    select(subject_id, all_of(question_col_names), alsfrs_total, alsfrs_dly_mnths) 
 
-proact_standardized <- proact_full %>%
-    rename_with(function(x) { question_col_names_translation[x]}, .cols = all_of(question_col_names_proact)) %>%
-    rename(alsfrs_total = ALSFRS_R_Total) %>%
-    mutate(alsfrs_dly_mnths = ALSFRS_Delta / days_per_month) %>%
-    select(subject_id, all_of(question_col_names), alsfrs_total, alsfrs_dly_mnths) 
 
-
-proact_standardized
+irldat_standardized <- irldat_full
     
 ```
 
 ```{r}
 
 
-sim1 <- simulate_data_from_registry(proact_standardized,
-                                    max_duration = 12,
-                                    min_measurements_per_subject = 4,
+sim1 <- simulate_data_from_registry(irldat_standardized,
+                                    max_duration = 36,
+                                    min_measurements_per_subject = 2,
                                     max_measurements_per_subject = 8,
                                     n_subjects_per_group = 50,
                                     effect_prob = 1)
@@ -98,20 +110,18 @@ sim1 %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total - alsfrs_start, group
 ```{r}
 
 # Setting for simulations done early
-# questions_to_fit <- question_col_names[1:4]
-# n_subjects_per_group <- 100
-# eff_probs <- 0.7
-# keep_fits <- TRUE
+#questions_to_fit <- question_col_names[1:4]
+#n_subjects_per_group <- 100
+#eff_probs <- rep(c(0.3,0.5,0.7,0.9,1), times = 5)
 
 
 questions_to_fit <- question_col_names
 n_subjects_per_group <- 200
 eff_probs <- rep(c(0.5,0.55,0.6,0.65,0.7), times = 5)
-keep_fits <- FALSE
 
 sv <- make_stanvars_mv_probit_bgoodri(questions_to_fit)
 
-proact_formula <- as.formula(paste0(
+irldat_formula <- as.formula(paste0(
     "mvbind(", paste0(questions_to_fit, collapse = ", "),
     ") ~ 1 + alsfrs_dly_mnths*group + (1 | p | subject_id)"
 ))
@@ -127,9 +137,9 @@ set.seed(5584324)
 
 sims <- list()
 for(i in 1:length(eff_probs)) {
-  sims[[i]] <- simulate_data_from_registry(proact_standardized,
-                                    max_duration = 12,
-                                    min_measurements_per_subject = 4,
+  sims[[i]] <- simulate_data_from_registry(irldat_standardized,
+                                    max_duration = 36,
+                                    min_measurements_per_subject = 2,
                                     max_measurements_per_subject = 8,
                                     n_subjects_per_group = n_subjects_per_group,
                                     effect_prob = eff_probs[i])
@@ -172,20 +182,22 @@ for(i in 1:length(eff_probs)) {
   args_per_fit[[i]] <- list(data = data_for_fit)
 }
 
-if(keep_fits) {
-fits_mv_probit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
-} else {
-summaries_mv_probit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE, summarise_fun = effect_from_sim_study)
-}
+# fits_mv_probit <- brm_parallel(args_shared = list(formula = bf(irldat_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
+
+
+summaries_mv_probit <- brm_parallel(
+      args_shared = list(formula = bf(irldat_formula, family = empty_cumulative()) +
+                           set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1),
+      args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE,
+      summarise_fun = effect_from_sim_study)
+
 ```
 ```{r}
-if(keep_fits) {
 for(i in 1:length(eff_probs)) {
   cat("===== EFF Prob ", eff_probs[i], "====== \n")
   print(fits_mv_probit[[i]])
   #Next step: make predictions for the total score
 }
-}
 
 
 ```
@@ -193,16 +205,12 @@ for(i in 1:length(eff_probs)) {
 
 ```{r}
 
-if(keep_fits) {
-  all_effects_mv_probit <- purrr::map_df(1:length(eff_probs),
-                               ~ data.frame(id = .x, type = "mv_probit", eff_prob = eff_probs[.x], estimate = effect_from_sim_study(fits_mv_probit[[.x]])))
-    
-} else {
-  all_effects_mv_probit <- purrr::map_df(1:length(eff_probs), 
-                             ~ data.frame(id = .x, type = "mv_probit", eff_prob = eff_probs[.x], estimate = summaries_mv_probit[[.x]]))
-    
-}
 
+# all_effects_mv_probit <- purrr::map_df(1:length(eff_probs), 
+#                              ~ data.frame(id = .x, type = "mv_probit", eff_prob = eff_probs[.x], estimate = effect_from_sim_study(fits_mv_probit[[.x]])))
+
+all_effects_mv_probit <- purrr::map_df(1:length(eff_probs), 
+                             ~ data.frame(id = .x, type = "mv_probit", eff_prob = eff_probs[.x], estimate = summaries_mv_probit[[.x]]))
 
 ```
 
@@ -217,31 +225,8 @@ plot_mv_probit <- all_effects_mv_probit %>%
 
 plot_mv_probit
 ```
-
-
 ```{r}
-make_stancode(bf(proact_formula, family = cumulative()) + set_rescor(FALSE),
-              data = args_per_fit[[1]]$data)
-
-
-args_per_fit[[1]]$data$subject_id %>% unique() %>% length()
-```
-
-```{r}
-## Sum to zero test
-# data_s0 <- make_standata(bf(proact_formula, family = cumulative()) + set_rescor(FALSE),
-#               data = args_per_fit[[1]]$data)
-# 
-# model_s0 <- cmdstan_model("../stan/indep_logit_sum0.stan")
-# 
-# fit_s0 <- model_s0$sample(data = data_s0, init = 0.1)
-
-```
-
-
-
-```{r}
-fits_logit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = cumulative()) + set_rescor(FALSE), adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
+fits_logit <- brm_parallel(args_shared = list(formula = bf(irldat_formula, family = cumulative()) + set_rescor(FALSE), adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
 
 all_effects_logit <- purrr::map_df(1:length(eff_probs), 
                              ~ data.frame(id = .x, type = "logit", eff_prob = eff_probs[.x], estimate = effect_from_sim_study(fits_logit[[.x]])))
@@ -261,7 +246,6 @@ plot_logit <- all_effects_logit %>%
 
 plot_logit
 ```
-
 ## Lme4 splines
 
 ```{r}
@@ -269,7 +253,7 @@ library(lme4)
 library(splines)
 
 get_spline_coeffs <- function(x) {
-  res <- ns(x, knots = 6, Boundary.knots = c(0, 12))
+  res <- ns(x, knots = 6, Boundary.knots = c(0, 36))
   colnames(res) <- paste0("dly_mnths_spline_", 1:ncol(res))
   res
 }
