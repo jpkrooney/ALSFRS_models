@@ -530,46 +530,46 @@ sim_scores
 ### Logit model (2)
 
 ```{r}
-#CALCULATE LOGIT FITS 
-logit_formula <- as.formula(paste0(
-    "mvbind(", paste0(questions_to_fit, collapse = ", "),
-    ") ~ 1 + alsfrs_dly_mnths*group + (1 | p | subject_id)"
-))
-
-fits_logit2 <- brm_parallel(
-    args_shared = list(formula = bf(logit_formula, family = cumulative()) + set_rescor(FALSE), 
-                                    adapt_delta = 0.95,
-                                    init = 0.1,
-                                    chains = 4,
-                                    iter = 3000,
-                                    warmup = 1000),
-    args_per_fit = args_per_fit,
-    cache_dir = cache_dir,
-    cache_fits = TRUE,
-    future.globals = FALSE)
-
-lapply(fits_logit2, summary)
+# #CALCULATE LOGIT FITS 
+# logit_formula <- as.formula(paste0(
+#     "mvbind(", paste0(questions_to_fit, collapse = ", "),
+#     ") ~ 1 + alsfrs_dly_mnths*group + (1 | p | subject_id)"
+# ))
+# 
+# fits_logit2 <- brm_parallel(
+#     args_shared = list(formula = bf(logit_formula, family = cumulative()) + set_rescor(FALSE), 
+#                                     adapt_delta = 0.95,
+#                                     init = 0.1,
+#                                     chains = 4,
+#                                     iter = 3000,
+#                                     warmup = 1000),
+#     args_per_fit = args_per_fit,
+#     cache_dir = cache_dir,
+#     cache_fits = TRUE,
+#     future.globals = FALSE)
+# 
+# lapply(fits_logit2, summary)
 
 ```
 
 ```{r}
-all_effects_logit2 <- purrr::map_df(1:length(eff_prob), 
-                             ~ data.frame(id = .x, type = "logit", eff_prob = eff_prob[.x], estimate = effects_logit(fits_logit2[[.x]])))
-
-#dim(posterior_epred(fits_logit2[[1]], newdata = predict_data, re_formula = NA)) 
-# check the output of posterior_epred, does it compute the expected score dif correctly? 
+# all_effects_logit2 <- purrr::map_df(1:length(eff_prob), 
+#                              ~ data.frame(id = .x, type = "logit", eff_prob = eff_prob[.x], estimate = effects_logit(fits_logit2[[.x]])))
+# 
+# #dim(posterior_epred(fits_logit2[[1]], newdata = predict_data, re_formula = NA)) 
+# # check the output of posterior_epred, does it compute the expected score dif correctly? 
 ```
 
 ```{r}
 
-plot_logit2 <- all_effects_logit2 %>%
-  mutate(eff_prob = factor(eff_prob)) %>%
-  ggplot(aes(x = eff_prob, group = id, y = estimate)) + 
-    geom_hline(yintercept = 0) +
-    stat_pointinterval(position = position_dodge(width = 0.3)) + 
-    #expand_limits(y = shared_range) +
-    ggtitle("Logit")
-plot_logit2
+# plot_logit2 <- all_effects_logit2 %>%
+#   mutate(eff_prob = factor(eff_prob)) %>%
+#   ggplot(aes(x = eff_prob, group = id, y = estimate)) + 
+#     geom_hline(yintercept = 0) +
+#     stat_pointinterval(position = position_dodge(width = 0.3)) + 
+#     #expand_limits(y = shared_range) +
+#     ggtitle("Logit")
+# plot_logit2
 ```
 
 ### Lme4 checks (2)
@@ -655,41 +655,41 @@ plot_lmer_splines2
 ### Joined (2)
 
 ```{r}
-
-#JOINED PLOT
-
-my_pos <- position_dodge(width = 0.5)
-
-rbind(summarise_brms(all_effects_logit2),
-      all_effects_lmer_splines2,
-      all_effects_lmer_simple2) %>%
-    mutate(eff_prob = factor(eff_prob)) %>%
-  ggplot(aes(x = factor(id), group = interaction(id, type), color = type)) + 
-    geom_hline(yintercept = 0) +
-    geom_linerange(aes(ymin = lower50, ymax = upper50), size = 1.2, position = my_pos) +
-    geom_linerange(aes(ymin = lower95, ymax = upper95), position = my_pos) +
-    geom_point(aes(y = estimate), position = my_pos, size = 3) +
-    facet_wrap(~eff_prob, scales = "free", ncol = 2) +
-    theme(axis.title.x = element_blank(), axis.text.x = element_blank())
+# 
+# #JOINED PLOT
+# 
+# my_pos <- position_dodge(width = 0.5)
+# 
+# rbind(summarise_brms(all_effects_logit2),
+#       all_effects_lmer_splines2,
+#       all_effects_lmer_simple2) %>%
+#     mutate(eff_prob = factor(eff_prob)) %>%
+#   ggplot(aes(x = factor(id), group = interaction(id, type), color = type)) + 
+#     geom_hline(yintercept = 0) +
+#     geom_linerange(aes(ymin = lower50, ymax = upper50), size = 1.2, position = my_pos) +
+#     geom_linerange(aes(ymin = lower95, ymax = upper95), position = my_pos) +
+#     geom_point(aes(y = estimate), position = my_pos, size = 3) +
+#     facet_wrap(~eff_prob, scales = "free", ncol = 2) +
+#     theme(axis.title.x = element_blank(), axis.text.x = element_blank())
 ```
 
 ```{r}
-#CHECK THE COVERAGE 
-summary2 <- rbind(summarise_brms(all_effects_logit2),
-      all_effects_lmer_splines2,
-      all_effects_lmer_simple2) %>%
-      mutate(effect = ifelse(eff_prob == 0.5, 0, NA), 
-             covered = effect <= upper95 & effect >= lower95, 
-             length = upper95 - lower95) %>%
-    group_by(type, eff_prob) %>%
-    summarise(coverage = mean(covered), 
-              meanlength = mean(length),
-              .groups = "drop") %>%            
-    group_by(eff_prob) %>%                      
-    mutate(RE = meanlength[type == "lmer4_simple"] / meanlength) %>%
-    ungroup()
-
-summary2
+# #CHECK THE COVERAGE 
+# summary2 <- rbind(summarise_brms(all_effects_logit2),
+#       all_effects_lmer_splines2,
+#       all_effects_lmer_simple2) %>%
+#       mutate(effect = ifelse(eff_prob == 0.5, 0, NA), 
+#              covered = effect <= upper95 & effect >= lower95, 
+#              length = upper95 - lower95) %>%
+#     group_by(type, eff_prob) %>%
+#     summarise(coverage = mean(covered), 
+#               meanlength = mean(length),
+#               .groups = "drop") %>%            
+#     group_by(eff_prob) %>%                      
+#     mutate(RE = meanlength[type == "lmer4_simple"] / meanlength) %>%
+#     ungroup()
+# 
+# summary2
 ```
 
 ## Default priors & Five questions
