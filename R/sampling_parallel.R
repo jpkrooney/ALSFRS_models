@@ -17,7 +17,8 @@ sampling_parallel <- function(args_shared, args_per_fit,
                             cache_summaries = FALSE,
                             cache_dir = NULL,
                             future.chunk.size = 1,
-                            future.globals = NULL
+                            future.globals = TRUE,
+                            future.stdout = FALSE
                             ) {
 
   if(!is.list(args_shared)) {
@@ -258,10 +259,11 @@ sampling_parallel <- function(args_shared, args_per_fit,
       cmdstan_fit_dir = tempdir(),
       cache_fits = cache_fits,
       cache_summaries = cache_summaries,
+      progressor = progressor,
       future.seed = TRUE,
       future.chunk.size = future.chunk.size,
       future.globals = future.globals,
-      progressor = progressor
+      future.stdout = future.stdout
   )
 
   results
