@@ -248,10 +248,13 @@ sampling_parallel <- function(args_shared, args_per_fit,
       progressor <- NULL
   }
 
+  shared_args_per_fit <- mori::share(args_per_fit)
+  shared_args_shared <- mori::share(args_shared)
+
   results <- future.apply::future_lapply(
-      X = args_per_fit,
+      X = shared_args_per_fit,
       FUN = fit_fun,
-      args_shared = args_shared,
+      args_shared = shared_args_shared,
       summarise_fun = summarise_fun,
       convert_cmdstan_fits_to_rstan = convert_cmdstan_fits_to_rstan,
       cores_per_fit = cores_per_fit,
