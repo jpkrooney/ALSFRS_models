@@ -1,8 +1,6 @@
 ---
 title: "Simulation from existing data - devel"
-output:
-  html_document:
-    df_print: paged
+output: html_notebook
 ---
 
 ```{r setup}
@@ -15,17 +13,16 @@ library(ggdist)
 library(cmdstanr)
 library(patchwork)
 
-options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
+options(mc.cores = 8, brms.backend = "cmdstanr")
 cache_dir <- here::here("local_temp_data", "simulation_test")
 if(!dir.exists(cache_dir)) {
   dir.create(cache_dir, recursive = TRUE)
 }
-source(here::here("R", "pp_checks.R"))
-source(here::here("R", "mv_probit.R"))
-source(here::here("R", "simulate_data.R"))
-source(here::here("R", "sampling_parallel.R"))
-source(here::here("R", "brm_parallel.R"))
-source(here::here("R", "cluster.R"))
+source(here::here("R/utils", "pp_checks.R"))
+source(here::here("R/utils", "mv_probit.R"))
+source(here::here("R/utils", "simulate_data.R"))
+source(here::here("R/utils", "sampling_parallel.R"))
+source(here::here("R/utils", "brm_parallel.R"))
 
 
 theme_set(theme_minimal())
@@ -33,16 +30,6 @@ proact <- read_csv(here::here("private_data/alsfrs_proact.csv"))
 ```
 
 ```{r}
-setup_cluster(max_server_workers = 100)
-```
-
-```{r}
-# DATA PREPARATION
-# unify Q5
-# omit vars that are not useful
-# unify question names
-# keep only complete obs
-
 days_per_month <- 365.25 / 12
 
 any(!is.na(proact$Q5a_Cutting_without_Gastrostomy) & !is.na(proact$Q5b_Cutting_with_Gastrostomy) &
@@ -75,7 +62,6 @@ proact_standardized
 
 ```{r}
 
-# SIMULATION 
 
 sim1 <- simulate_data_from_registry(proact_standardized,
                                     max_duration = 12,
@@ -107,23 +93,21 @@ sim1 %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total - alsfrs_start, group
 
 ```
 
-## Simulation setup
-
 ```{r}
-# Test scenario
-# questions_to_fit <- question_col_names
-# n_subjects_per_group <- 50
-# eff_probs <- rep(c(0.5, 0.7, 0.8), times = 20)
+
+# Setting for simulations done early
+# questions_to_fit <- question_col_names[1:4]
+# n_subjects_per_group <- 100
+# eff_probs <- 0.7
 # keep_fits <- TRUE
 
-# Final scenario
-questions_to_fit <- question_col_names[c(1,2)] #change the no. of questions here 
-n_subjects_per_group <- 50
-eff_probs <- rep(c(0.5, 0.7, 0.8), times = 5) #define the no. of simulations here 
-keep_fits <- TRUE
 
+questions_to_fit <- question_col_names
+n_subjects_per_group <- 200
+eff_probs <- rep(c(0.5,0.55,0.6,0.65,0.7), times = 5)
+keep_fits <- FALSE
 
-#sv <- make_stanvars_mv_probit_bgoodri(questions_to_fit)
+sv <- make_stanvars_mv_probit_bgoodri(questions_to_fit)
 
 proact_formula <- as.formula(paste0(
     "mvbind(", paste0(questions_to_fit, collapse = ", "),
@@ -135,7 +119,7 @@ proact_formula <- as.formula(paste0(
 ```
 
 ```{r}
-set.seed(468652233)
+set.seed(5584324)
 
 sims <- list()
 for(i in 1:length(eff_probs)) {
@@ -145,18 +129,15 @@ for(i in 1:length(eff_probs)) {
                                     max_measurements_per_subject = 8,
                                     n_subjects_per_group = n_subjects_per_group,
                                     effect_prob = eff_probs[i])
-  if(i <= 15) {
   print(sims[[i]] %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total - alsfrs_start, group = subject_id,
                                 color = group)) +
     geom_line(position = position_jitter(height = 0.3), alpha = 0.5) + ggtitle(paste0("Eff prob: ", eff_probs[i]))) 
-  }
+
 }
 
 ```
 
 ```{r}
-# Function for effect posterior prediction 
-
 effect_from_sim_study <- function(fit) {
   predict_data <- data.frame(group = c("Control", "Control", "Treatment", "Treatment"),
                              alsfrs_dly_mnths = c(0, 12, 0, 12))
@@ -164,7 +145,7 @@ effect_from_sim_study <- function(fit) {
   pred <- posterior_epred(fit, newdata = predict_data, re_formula = NA)
   
   expected_sum <- function(x) {
-    col_values <- as.integer(colnames(x)) #TODO: what does - 1 do here? 
+    col_values <- as.integer(colnames(x))
     multiplied <- sweep(x, MARGIN = 2, STATS = col_values, FUN = "*")
     rowSums(multiplied)
   }
@@ -185,24 +166,79 @@ for(i in 1:length(eff_probs)) {
     mutate(across(all_of(question_col_names), function(x) { x + 1 }))
   args_per_fit[[i]] <- list(data = data_for_fit)
 }
-```
 
-## Logit fits
+if(keep_fits) {
+fits_mv_probit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
+} else {
+summaries_mv_probit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE, summarise_fun = effect_from_sim_study)
+}
+```
 
 ```{r}
 if(keep_fits) {
-  fits_logit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = cumulative()) + set_rescor(FALSE), adapt_delta = 0.95, init = 0.1, chains = 2, iter = 3000, warmup = 1000), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE, future.globals = FALSE)
+for(i in 1:length(eff_probs)) {
+  cat("===== EFF Prob ", eff_probs[i], "====== \n")
+  print(fits_mv_probit[[i]])
+  #Next step: make predictions for the total score
+}
+}
 
-  all_effects_logit <- purrr::map_df(1:length(eff_probs), 
+
+```
+
+```{r}
+
+if(keep_fits) {
+  all_effects_mv_probit <- purrr::map_df(1:length(eff_probs),
+                               ~ data.frame(id = .x, type = "mv_probit", eff_prob = eff_probs[.x], estimate = effect_from_sim_study(fits_mv_probit[[.x]])))
+    
+} else {
+  all_effects_mv_probit <- purrr::map_df(1:length(eff_probs), 
+                             ~ data.frame(id = .x, type = "mv_probit", eff_prob = eff_probs[.x], estimate = summaries_mv_probit[[.x]]))
+    
+}
+
+
+```
+
+```{r}
+plot_mv_probit <- all_effects_mv_probit %>%
+  mutate(eff_prob = factor(eff_prob)) %>%
+  ggplot(aes(x = eff_prob, group = id, y = estimate)) + 
+    geom_hline(yintercept = 0) +
+    stat_pointinterval(position = position_dodge(width = 0.3)) + 
+#    expand_limits(y = shared_range) +
+    ggtitle("MV probit") 
+
+plot_mv_probit
+```
+
+```{r}
+make_stancode(bf(proact_formula, family = cumulative()) + set_rescor(FALSE),
+              data = args_per_fit[[1]]$data)
+
+
+args_per_fit[[1]]$data$subject_id %>% unique() %>% length()
+```
+
+```{r}
+## Sum to zero test
+# data_s0 <- make_standata(bf(proact_formula, family = cumulative()) + set_rescor(FALSE),
+#               data = args_per_fit[[1]]$data)
+# 
+# model_s0 <- cmdstan_model("../stan/indep_logit_sum0.stan")
+# 
+# fit_s0 <- model_s0$sample(data = data_s0, init = 0.1)
+
+```
+
+```{r}
+fits_logit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = cumulative()) + set_rescor(FALSE), adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
+
+all_effects_logit <- purrr::map_df(1:length(eff_probs), 
                              ~ data.frame(id = .x, type = "logit", eff_prob = eff_probs[.x], estimate = effect_from_sim_study(fits_logit[[.x]])))
 
-} else {
-    summaries_logit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = cumulative()) + set_rescor(FALSE), adapt_delta = 0.95, init = 0.1, chains = 2, iter = 3000, warmup = 1000), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE, summarise_fun = effect_from_sim_study,
-                                    future.globals = list("effect_from_sim_study" = effect_from_sim_study))
-    
-    all_effects_logit <- purrr::map_df(1:length(eff_probs), 
-                             ~ data.frame(id = .x, type = "logit", eff_prob = eff_probs[.x], estimate = summaries_logit[[.x]]))
-}
+
 ```
 
 ```{r}
@@ -230,20 +266,18 @@ get_spline_coeffs <- function(x) {
   res
 }
 
-fits_lmer_splines <- future.apply::future_lapply(sims, function(data_for_lmer) {
-    data_for_lmer$alsfrs_sum_subset <-  rowSums(data_for_lmer[, questions_to_fit]) #here summing all questions to fit (that is what I will manipulate with)
-    spline_data <- ns(data_for_lmer$alsfrs_dly_mnths, 2)
-    data_for_lmer <- cbind(data_for_lmer,
-                           get_spline_coeffs(data_for_lmer$alsfrs_dly_mnths))
-    
-    
-    lme4::lmer(
-        alsfrs_sum_subset ~ 1 + dly_mnths_spline_1 * group + dly_mnths_spline_2 *
-            group++(dly_mnths_spline_1 + dly_mnths_spline_2 |
-                        subject_id),
-        data = data_for_lmer
-    )
-})
+fits_lmer_splines <- list()
+for(i in 1:length(eff_probs)) {
+  data_for_lmer <- sims[[i]]
+  data_for_lmer$alsfrs_sum_subset <-  rowSums(sims[[i]][,questions_to_fit])
+  spline_data <- ns(data_for_lmer$alsfrs_dly_mnths, 2)
+  data_for_lmer <- cbind(data_for_lmer, get_spline_coeffs(data_for_lmer$alsfrs_dly_mnths))
+  
+
+  fits_lmer_splines[[i]] <- lme4::lmer(alsfrs_sum_subset ~ 1 + dly_mnths_spline_1*group + dly_mnths_spline_2*group +  + (dly_mnths_spline_1 + dly_mnths_spline_2|subject_id), data = data_for_lmer)
+}
+
+
 ```
 
 ```{r}
@@ -299,10 +333,16 @@ plot_lmer_splines
 library(lme4)
 library(splines)
 
-fits_lmer_simple <- future.apply::future_lapply(sims, function(data_for_lmer) {
-  data_for_lmer$alsfrs_sum_subset <-  rowSums(data_for_lmer[,questions_to_fit])
-  lme4::lmer(alsfrs_sum_subset ~ 1 + alsfrs_dly_mnths*group+ (1 + alsfrs_dly_mnths|subject_id), data = data_for_lmer)
-})
+fits_lmer_simple <- list()
+for(i in 1:length(eff_probs)) {
+  data_for_lmer <- sims[[i]]
+  data_for_lmer$alsfrs_sum_subset <-  rowSums(sims[[i]][,questions_to_fit])
+
+#  fits_lmer_simple[[i]] <- lme4::lmer(alsfrs_sum_subset ~ 1 + alsfrs_dly_mnths*group+ (1 + alsfrs_dly_mnths|subject_id), data = data_for_lmer)
+  fits_lmer_simple[[i]] <- lme4::lmer(alsfrs_sum_subset ~ 1 + alsfrs_dly_mnths*group+ (1 |subject_id), data = data_for_lmer)
+}
+
+
 ```
 
 ```{r}
@@ -363,7 +403,7 @@ summarise_brms <- function(all_effects) {
 my_pos <- position_dodge(width = 0.5)
 
 rbind(summarise_brms(all_effects_logit),
-      #summarise_brms(all_effects_mv_probit),
+      summarise_brms(all_effects_mv_probit),
       all_effects_lmer_splines,
       all_effects_lmer_simple) %>%
     mutate(eff_prob = factor(eff_prob)) %>%
@@ -376,5 +416,3 @@ rbind(summarise_brms(all_effects_logit),
     theme(axis.title.x = element_blank(), axis.text.x = element_blank())
 
 ```
-
-## 

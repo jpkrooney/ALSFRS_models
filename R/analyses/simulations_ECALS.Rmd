@@ -21,12 +21,12 @@ cache_dir <- here::here("local_temp_data", "simulation_test")
 if(!dir.exists(cache_dir)) {
   dir.create(cache_dir, recursive = TRUE)
 }
-source(here::here("R", "pp_checks.R"))
-source(here::here("R", "mv_probit.R"))
-source(here::here("R", "simulate_data.R"))
-source(here::here("R", "sampling_parallel.R"))
-source(here::here("R", "brm_parallel.R"))
-source(here::here("R", "cluster.R"))
+source(here::here("R/utils", "pp_checks.R"))
+source(here::here("R/utils", "mv_probit.R"))
+source(here::here("R/utils", "simulate_data.R"))
+source(here::here("R/utils", "sampling_parallel.R"))
+source(here::here("R/utils", "brm_parallel.R"))
+source(here::here("R/utils", "cluster.R"))
 
 theme_set(theme_minimal())
 proact <- read_csv(here::here("private_data/alsfrs_proact.csv"))
@@ -40,7 +40,6 @@ chains <- 4
 iter <- 1000
 warmup <- 1000
 ```
-
 
 ```{r}
 days_per_month <- 365.25 / 12
@@ -92,7 +91,6 @@ sim1 %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total - alsfrs_start, group
     geom_line(position = position_jitter(height = 0.3), alpha = 0.5)
 
 ```
-
 
 ```{r}
 #Effect visible just on subset?
@@ -158,8 +156,6 @@ proact_formula_cor <- as.formula(paste0(
 # sum_to_zero_stanvar <- stanvar(scode = 
 #                                  paste0("target += normal_lpdf(sum(z_1[", 1:length(questions_to_fit), ",]) | 0, 0.001 *N_1);\n"), block = "model")
 ```
-
-
 
 ```{r}
 set.seed(468652233)
@@ -228,7 +224,6 @@ effect_from_sim_study <- function(fit) {
 }
 ```
 
-
 ```{r}
 args_per_fit <- list()
 for(i in 1:length(eff_probs)) {
@@ -289,7 +284,6 @@ all_diags_mv_probit_cor <- purrr::map_dfr(1:length(eff_probs),
 }
 ```
 
-
 ## Logit fits
 
 ```{r}
@@ -314,7 +308,6 @@ all_diags_logit <- purrr::map_dfr(1:length(eff_probs),
                          ~ summaries_logit[[.x]]$diags |> mutate(id = .x, type = "logit", .before = 1))
 }
 ```
-
 
 ```{r}
 if(!skip_nocor) {
@@ -411,6 +404,7 @@ all_effects_lmer_splines <- purrr::map_df(1:length(eff_probs),
 
 
 ```
+
 ```{r}
 plot_lmer_splines <- all_effects_lmer_splines %>%
   mutate(eff_prob = factor(eff_prob)) %>%
@@ -442,8 +436,6 @@ fits_lmer_simple <- lapply(sims, function(data_for_lmer) {
 })
 ```
 
-
-
 ```{r}
 effect_from_lmer_simple <- function(fit) {
   # Estimating conf ints. for a linear combination
@@ -472,6 +464,7 @@ all_effects_lmer_simple <- purrr::map_df(1:length(eff_probs),
 
 
 ```
+
 ```{r}
 all_effects_lmer_simple %>%
   mutate(eff_prob = factor(eff_prob)) %>%
@@ -540,7 +533,6 @@ summaries_all |>
 
 ```
 
-
 ```{r}
 summaries_all %>%
     filter(id < 20) |> 
@@ -553,6 +545,3 @@ summaries_all %>%
     facet_wrap(~eff_prob, scales = "free", ncol = 1) +
     theme(axis.title.x = element_blank(), axis.text.x = element_blank())
 ```
-
-
-

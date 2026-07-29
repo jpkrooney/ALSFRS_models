@@ -26,10 +26,10 @@ if(!dir.exists(cache_dir)) {
   dir.create(cache_dir, recursive = TRUE)
 }
 
-source(here::here("R", "simulate_data.R"))
-source(here::here("R", "sampling_parallel.R"))
-source(here::here("R", "brm_parallel.R"))
-source(here::here("R", "cluster.R")) #set up future package 
+source(here::here("R/utils", "simulate_data.R"))
+source(here::here("R/utils", "sampling_parallel.R"))
+source(here::here("R/utils", "brm_parallel.R"))
+source(here::here("R/utils", "cluster.R")) #set up future package 
 
 setup_cluster(max_server_workers = 100)
 ```
@@ -39,7 +39,7 @@ setup_cluster(max_server_workers = 100)
 ```{r}
 
 #LOAD DATA
-proact <- read_csv(here::here("private_data/alsfrs_proact.csv"))
+proact <- read_csv(here::here("private_data/F_PROACT_ALSFRS.csv"))
 
 
 # DATA PREPARATION
@@ -395,7 +395,7 @@ summary_lmer
 
 ```{r}
 # SUBSAMPLE OF SIMS
-nsims_sub = 100
+nsims_sub = 1
 n_subjects_per_group <- c(rep(50, times = nsims) , rep(100, times = nsims), rep(500, times = nsims), rep(1000, times = nsims),rep(1400, times = nsims))
 #eff_probs <- rep(c(0.5, 0.6, 0.7, 0.8, 0.9, 1), times = nsims)
 eff_prob <- 0.65
@@ -440,8 +440,8 @@ logit_formula_rslope <- as.formula(paste0(
 
 ```{r}
 #QUICKLY CHANGE SETTINGs
-n_chains <- 3
-n_iter <- 3000
+n_chains <- 2
+n_iter <- 2000
 
 #RANDOM INTERCEPT
 fits_logit <- brm_parallel(
@@ -562,7 +562,7 @@ fits_logit_rslope_TPR <- brm_parallel(
 ```{r}
 #COMPUTE THE EFFECTS AND ORGANIZE THEM IN A SINGLE DATAFRAME 
 all_effects_logit_rslope_TPR <- purrr::map_df(1:length(n_subjects_per_group_sub),
-                             ~ data.frame(id = .x, type = "logit_rslope_TPR", n_subjects_per_group = n_subjects_per_group_sub[.x], estimate = effects_logit(fits_logit[[.x]])))
+                             ~ data.frame(id = .x, type = "logit_rslope_TPR", n_subjects_per_group = n_subjects_per_group_sub[.x], estimate = effects_logit(fits_logit_rslope_TPR[[.x]])))
 
 ```
 
@@ -601,7 +601,7 @@ true_logit_rslope_TPR <- all_effects_logit_rslope_TPR %>%
 
 
 true_effect_logit <- mean(c(true_logit,true_logit_rslope, true_logit_rslope_TPR))
-true_efect <- mean(c(true_effect_lmer, true_effect_logit))
+true_effect <- mean(c(true_effect_lmer, true_effect_logit))
 
 ```
 

@@ -18,6 +18,7 @@ effect_from_sim_study <- function(fit, time1, time2, timevar,
     # resolve summing method
     method <- match.arg(method)
     summation <- match.arg(summation)
+    model <- match.arg(model)
 
     funcs <-list(
         sum_allQ = if(method == "expected") {expected_sum_allQ} else if(method == "predicted") {rowSums},
