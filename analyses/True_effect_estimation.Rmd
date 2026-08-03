@@ -26,10 +26,10 @@ if(!dir.exists(cache_dir)) {
   dir.create(cache_dir, recursive = TRUE)
 }
 
-source(here::here("R/utils", "simulate_data.R"))
-source(here::here("R/utils", "sampling_parallel.R"))
-source(here::here("R/utils", "brm_parallel.R"))
-source(here::here("R/utils", "cluster.R")) #set up future package 
+source(here::here("R", "simulate_data.R"))
+source(here::here("R", "sampling_parallel.R"))
+source(here::here("R", "brm_parallel.R"))
+source(here::here("R", "cluster.R")) #set up future package 
 
 setup_cluster(max_server_workers = 100)
 ```

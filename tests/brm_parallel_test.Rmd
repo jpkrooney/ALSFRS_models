@@ -17,8 +17,8 @@ cache_dir <- here::here("local_temp_data")
 if(!dir.exists(cache_dir)) {
   dir.create(cache_dir)
 }
-source(here::here("R/utils", "sampling_parallel.R"))
-source(here::here("R/utils", "brm_parallel.R"))
+source(here::here("R", "sampling_parallel.R"))
+source(here::here("R", "brm_parallel.R"))
 
 future::plan(future::multisession)
 ```

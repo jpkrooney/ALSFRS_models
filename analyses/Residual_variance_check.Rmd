@@ -31,11 +31,11 @@ if(!dir.exists(cache_dir)) {
     dir.create(cache_dir, recursive = TRUE)
 }
 
-source(here::here("R/utils", "simulate_data.R"))
-source(here::here("R/utils", "sampling_parallel.R"))
-source(here::here("R/utils", "brm_parallel.R"))
-source(here::here("R/utils", "cluster.R")) 
-source(here::here("R/utils", "pp_checks.R"))
+source(here::here("R", "simulate_data.R"))
+source(here::here("R", "sampling_parallel.R"))
+source(here::here("R", "brm_parallel.R"))
+source(here::here("R", "cluster.R")) 
+source(here::here("R", "pp_checks.R"))
 
 #LOAD DATA
 proact <- read_csv(here::here("private_data/F_PROACT_ALSFRS.csv"))
