@@ -1,0 +1,304 @@
+empty_cumulative <- function() {
+    custom_family(
+        "empty_cumulative", dpars = c("mu"),
+        links = c("identity"), lb = 1,
+        type = "int", threshold = "flexible", specials = c("ordinal", "ordered_thres", "thres_minus_eta"),
+        posterior_epred = posterior_epred_empty_cumulative)
+}
+
+make_stanvars_mv_probit_base <- function(column_names, rescor_prior_eta = 1) {
+    N_dims <- length(column_names)
+
+
+    stan_funs <- "
+      real empty_cumulative_lpmf(int y, real mu, vector intercept) {
+        return 0;
+      }
+
+    "
+
+    stan_tdata <- paste0("
+           int N_thres = nthres_", column_names[1], ";",
+
+                         paste0("
+         if(N != N_", column_names, ") { reject(\"Requiring equal sample size in all dimensions.\"); }" ,
+                                collapse = "\n")
+    )
+
+    stan_params <- paste0("
+      cholesky_factor_corr[", N_dims, "] L_rescor;
+    ")
+
+
+    stan_priors <- paste0("
+      target += lkj_corr_cholesky_lpdf(L_rescor | ", rescor_prior_eta, ");
+      target += normal_lpdf(scale_intercept | 0, 0.5);
+      target += normal_lpdf(scale_slope | 0, 0.5);
+    ")
+
+    stan_thresholds <- paste0("
+         array [", N_dims, "] vector[N_thres] thresholds;",
+                              paste0("
+         thresholds[", 1:N_dims, "] = Intercept_", column_names, ";", collapse = "")
+    )
+
+    stan_genquants <- paste0("
+     corr_matrix[", N_dims, "] Rescor = multiply_lower_tri_self_transpose(L_rescor);
+     vector<lower=-1,upper=1>[", choose(N_dims, 2) ,"] rescor;
+     // extract upper diagonal of rescor matrix
+     for (k in 1:", N_dims, ") {
+        for (j in 1:(k - 1)) {
+          rescor[choose(k - 1, 2) + j] = Rescor[j, k];
+        }
+      }
+    ")
+
+    stanvars_mult_probit <- stanvar(scode = stan_funs, block = "functions") +
+        stanvar(scode = stan_tdata, block = "tdata") +
+        stanvar(scode = stan_params, block = "parameters") +
+        stanvar(scode = stan_thresholds, block = "model", position = "start") +
+        stanvar(scode = stan_priors, block = "model", position = "start") +
+        stanvar(scode = stan_genquants, block = "genquant")
+
+
+    stanvars_mult_probit
+}
+
+make_stanvars_mv_probit_bgoodri <- function(column_names, rescor_prior_eta = 1) {
+
+    # Based on code upoaded by Ben Goodrich which uses the
+    # GHK algorithm for generating TruncMVN.
+    N_dims <- length(column_names)
+
+
+    stanvars_base <- make_stanvars_mv_probit_base(column_names, rescor_prior_eta = rescor_prior_eta)
+
+    stan_funs <- "
+      real approx_Phi(real x) {
+        return inv_logit(x * 1.702);
+      }
+
+      real approx_inv_Phi(real x) {
+        return logit(x) / 1.702;
+      }
+    "
+
+    stan_tdata <- paste0("
+         if(nthres_", column_names[1]," != nthres_", column_names[2:length(column_names)], ") { reject(\"Requiring equal number of thresholds in all dimensions.\"); }" ,
+                         collapse = "\n")
+
+
+    stan_params <- paste0("
+      array[N, ", N_dims, "] real<lower=0, upper=1> u; // raw residuals
+      // We model log(sigma) to ensure sigma is always positive
+      vector<lower = 0>[", N_dims ,"] scale_intercept; // The baseline scale for each dimension
+      vector[", N_dims ,"] scale_slope;     // The rate of change of scale over dimensions
+    ")
+
+    stan_tparams <- paste0("
+      vector<lower=0>[", N_dims ,"] sigma_d;
+      for (d in 1:", N_dims ,") {
+          sigma_d[d] = exp(scale_intercept[d] + scale_slope[d] * d);
+      }
+    ")
+
+    stan_likelihood <- paste0("
+       for(n in 1:N) {
+            array[", N_dims, "] real mus = {", paste0("mu_", column_names, "[n]", collapse = ", "), "};
+            array[", N_dims, "] int Ys = {", paste0("Y_", column_names, "[n]", collapse = ", "), "};
+
+            vector[", N_dims, "] z;
+            real prev;
+            prev = 0;
+            for (d in 1:", N_dims, ") {
+              real t; // threshold at which utility = 0
+              real sigma_time = exp(scale_intercept[d] + scale_slope[d] * X_Q01[n, 1]);
+              //real sigma_time = exp(scale_intercept[d] - scale_slope[d]* exp(- X_Q01[n, 1]));
+
+              if (Ys[d] == 1){
+                real ub = approx_Phi((thresholds[d, 1] -(mus[d] + prev)) / sigma_time);
+                t = ub * u[n,d];
+                target += log(ub);  // Jacobian adjustment
+              } else if (Ys[d] == N_thres + 1) {
+                real lb = approx_Phi((thresholds[d, N_thres] -(mus[d] + prev)) / sigma_time);
+                t = lb + (1 - lb) * u[n,d];
+                target += log1m(lb);  // Jacobian adjustment
+              } else {
+                real lb = approx_Phi((thresholds[d, Ys[d] - 1] -(mus[d] + prev)) / sigma_time);
+                real ub = approx_Phi((thresholds[d, Ys[d]    ] -(mus[d] + prev)) / sigma_time);
+                t = lb + (ub - lb) * u[n,d];
+                target += log(ub - lb);
+              }
+              z[d] = approx_inv_Phi(t);
+              if (d < ", N_dims, ") prev = L_rescor[d+1,1:d] * head(z, d);
+              // Jacobian adjustments imply z is truncated standard normal
+              // thus utility --- mu + L_rescor * z --- is truncated multivariate normal
+            }
+        }
+    ")
+
+
+    stanvars_mult_probit <- stanvars_base +
+        stanvar(scode = stan_funs, block = "functions") +
+        stanvar(scode = stan_tdata, block = "tdata") +
+        stanvar(scode = stan_params, block = "parameters") +
+        #stanvar(scode = stan_tparams, block = "tparameters") +
+        stanvar(scode = stan_likelihood, block = "likelihood", position = "end")
+
+
+    stanvars_mult_probit
+}
+
+
+make_stanvars_mv_probit_augmented <- function(column_names, rescor_prior_eta = 1) {
+
+    stanvars_base <- make_stanvars_mv_probit_base(column_names, rescor_prior_eta = rescor_prior_eta)
+
+    N_dims <- length(column_names)
+
+
+    stan_funs <- "
+      real constrain_residual_lp(real z, real mu, int observed, vector thresholds) {
+        int N_cat = num_elements(thresholds) + 1;
+        if(observed == 1) {
+          real ub = thresholds[1]  - mu;
+          target += z;
+          return(ub - exp(z));
+        } else if(observed == N_cat) {
+          real lb = thresholds[N_cat - 1] - mu;
+          target += z;
+          return(lb + exp(z));
+        } else {
+          real lb = thresholds[observed - 1] - mu;
+          real diff = thresholds[observed]  - thresholds[observed - 1];
+          real inv_logit_z = inv_logit(z);
+          //target += log(diff) + log(inv_logit_z) + log1m(inv_logit_z);
+          target += log(diff) - abs(z) + 2.0 * log1p_exp(-abs(z));
+          return(lb + diff * inv_logit_z);
+        }
+      }
+    "
+
+    stan_params <- paste0("
+      array[N, ", N_dims, "] real z_rescor; // raw residuals
+    ")
+
+
+    constrain_residuals_code <- paste0(
+        "residuals[n, ", 1:N_dims, "] = constrain_residual_lp(z_rescor[n, ", 1:N_dims, "], mu_", column_names, "[n], Y_", column_names, "[n], Intercept_", column_names,");",    collapse = "\n          ")
+
+    stan_likelihood <- paste0("
+        {
+          array[N] vector[", N_dims, "] residuals;
+          for(n in 1:N) {
+              ", constrain_residuals_code , "
+          }
+          target += multi_normal_cholesky_lpdf(residuals | rep_vector(0, ", N_dims, "), L_rescor);
+        }
+    ")
+
+    stanvars_mult_probit <-
+        stanvars_base +
+        stanvar(scode = stan_funs, block = "functions") +
+        stanvar(scode = stan_params, block = "parameters") +
+        stanvar(scode = stan_likelihood, block = "likelihood", position = "end")
+
+
+    stanvars_mult_probit
+}
+
+posterior_epred_empty_cumulative <- function(prep) {
+    prep$family$family <- "cumulative"
+    prep$family$link <- "probit"
+    brms:::posterior_epred_ordinal(prep)
+}
+
+posterior_predict_mv_probit <- function(fit, nsamples = NULL, subset = NULL, ...) {
+    subset <- brms:::validate_draw_ids(fit, subset, nsamples)
+    linpred <- posterior_linpred(fit, transform = FALSE, subset = subset, ...)
+
+    prep <- prepare_predictions(fit, subset = subset, ...)
+    N_dims <- length(prep$resps)
+
+
+
+    rescor <- get_rescor(fit, size = N_dims, subset = subset)
+
+    out <- array(NA_integer_, c(prep$ndraws, prep$nobs, N_dims))
+    for(s in seq_len(prep$ndraws)) {
+        for(o in seq_len(prep$nobs)) {
+            mu_noise <- brms::rmulti_normal(1, mu = linpred[s, o, ], Sigma = rescor[s, , ])
+            for(resp_id in 1:N_dims) {
+                thres <- prep$resps[[resp_id]]$thres
+                out[s, o, resp_id] <- sum(thres$thres[s, ] < mu_noise[resp_id])
+            }
+        }
+    }
+    out + 1
+}
+
+get_rescor <- function(fit, size, subset = NULL) {
+    rescor  <- as.matrix(fit, variable = "^rescor\\[", regex = TRUE, subset = subset)
+
+    nsamples <- dim(rescor)[1]
+    out <- array(NA_real_, dim = c(nsamples, size, size))
+    for (i in seq_len(size)) {
+        out[, i, i] <- 1
+    }
+    stopifnot(min(rescor) >= -1, max(rescor) <= 1)
+    stopifnot(ncol(rescor) == size * (size - 1) / 2)
+    k <- 0
+    for (i in seq_len(size)[-1]) {
+        for (j in seq_len(i - 1)) {
+            k = k + 1
+            out[, j, i] <- out[, i, j] <- rescor[, paste0("rescor[",k,"]")]
+        }
+    }
+    stopifnot(all(!is.na(out)))
+    out
+}
+
+
+
+rmulti_normal_custom <- function (mu, Sigma, check = FALSE)
+{
+    n = dim(mu)[1]
+    p <- dim(mu)[2]
+    if (check) {
+        if (!(is_wholenumber(n) && n > 0)) {
+            stop2("n must be a positive integer.")
+        }
+        if (!all(dim(Sigma) == c(p, p))) {
+            stop2("Dimension of Sigma is incorrect.")
+        }
+        if (!is_symmetric(Sigma)) {
+            stop2("Sigma must be a symmetric matrix.")
+        }
+    }
+    samples <- matrix(rnorm(n * p), nrow = n, ncol = p, byrow = TRUE)
+    mu + samples %*% chol(Sigma)
+}
+
+
+posterior_predict_mv_probit2 <- function(fit, nsamples = NULL, subset = NULL, ...) {
+    subset <- brms:::validate_draw_ids(fit, subset, nsamples)
+    linpred <- posterior_linpred(fit, transform = FALSE, subset = subset, ...)
+    prep <- prepare_predictions(fit, subset = subset, ...)
+    N_dims <- length(prep$resps)
+    rescor <- get_rescor(fit, size = N_dims, subset = subset)
+
+    out <- array(NA_integer_, c(prep$ndraws, prep$nobs, N_dims))
+    for(s in seq_len(prep$ndraws)) {
+        mu_noise <- rmulti_normal_custom(mu = linpred[s, , ], Sigma = rescor[s, , ])
+        for(resp_id in 1:N_dims) {
+            thres <- prep$resps[[resp_id]]$thres
+            temp <- rep(thres$thres[s, ], each = prep$nobs) < mu_noise[, resp_id]
+            dim(temp) <- c(prep$nobs, length(thres$thres[s, ]))
+            out[s, , resp_id] <- rowSums(temp)
+        }
+    }
+    out + 1
+}
+
+
+
