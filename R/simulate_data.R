@@ -22,6 +22,7 @@ simulate_data_from_registry <- function(standardized_data,
         group_by(subject_id) %>%
         mutate(            is_first = alsfrs_dly_mnths == min(alsfrs_dly_mnths),
                            is_last = alsfrs_dly_mnths == max(alsfrs_dly_mnths)
+
         ) %>%
         group_by(subject_id, is_first, is_last) %>%
         sample_n(min(max_measurements_per_subject - 2, n())) %>%
@@ -72,6 +73,8 @@ simulate_data_from_registry <- function(standardized_data,
 
     grouped_subjects <- subsampled_data %>%
         inner_join(patient_stats, by = "subject_id") %>%
+        group_by(subject_id) %>%
+        mutate(visit_id = rank(alsfrs_dly_mnths, ties.method = "first")) %>%
         ungroup()
 
     if(length(unique(grouped_subjects$subject_id)) != n_subjects) {
