@@ -1,34 +1,22 @@
-
-# function not needed anymore ad now built into nutpieR
-#trim_pars <- function(nutfit, pars, exclude = TRUE){
-#    allpars <- attributes(nutfit)$dimnames[[3]]
-#    dims <- attributes(nutfit)$dim
+# nutpie ↔ brms bridge layer.
 #
-#    idx <- lapply(1:length(pars), function(i) {
-#        pat <- paste("^", pars[i], "(\\[(\\d+,)*\\d+\\])*$", sep = "")
-#        grepl(pat, allpars) }) |>
-#        bind_cols() |>
-#        rowMeans() > 0
+# nutpie samples a Stan model and returns a 3D draws array.
+# brms wants a `brmsfit` S4 object containing an rstan `stanfit`.
+# This file does the translation.
 #
-#    # If exclude = TRUE invert index
-#    if (exclude == TRUE) { idx <- !idx}
+# PUBLIC API:
+#   nutpie_to_brms(formula, data, stanmodel, nutfit, family, stanvars)
+#     -> brmsfit                                  # main entry point
 #
-#    # Apply the exclusions to nutfit
-#    trimfit <- nutfit[ , , idx ]
+# PRIVATE:
+#   nutpieR_to_rstan_obj(nutfit, stanmodel) -> stanfit (S4)
+#   make_sim_object(nutfit)                 -> list (rstan-style $sim)
 #
-#    attributes(trimfit)$diagnostics <- attributes(nutfit)$diagnostics
-#    attributes(trimfit)$num_chains <- attributes(nutfit)$num_chains
-#    attributes(trimfit)$num_warmup <- attributes(nutfit)$num_warmup
-#    attributes(trimfit)$num_draws <- attributes(nutfit)$num_draws
-#
-#    return(trimfit)
-#}
-
-
-
-
-
-
+# WARNING: depends on un-exported rstan internals
+# (rstan:::sqrfnames_to_dotfnames, paridx_fun, unique_par,
+#  get_dims_from_fnames, dotfnames_to_sqrfnames). Any rstan
+# version bump can break silently. renv pins rstan; check
+# nutpie_bridge_test.Rmd after any rstan upgrade.
 
 
 make_sim_object <- function(nutfit) {
@@ -85,6 +73,7 @@ make_sim_object <- function(nutfit) {
 
 
 
+
 nutpieR_to_rstan_obj <- function(nutfit, stanmodel){
     # make sim object
     sim <- make_sim_object(nutfit)
@@ -112,6 +101,7 @@ nutpieR_to_rstan_obj <- function(nutfit, stanmodel){
 
 
 
+
 nutpie_to_brms <- function(form, dat, model, fit, family, stanvars = NULL){
     emptybrms <- brm(bf(form, family = family) +
                          set_rescor(FALSE), stanvars = stanvars, adapt_delta = 0.95, init = 0.1,
@@ -123,6 +113,35 @@ nutpie_to_brms <- function(form, dat, model, fit, family, stanvars = NULL){
     brmsfit <- rename_pars(brmsfit)
     brmsfit
 }
+
+
+
+# function not needed anymore ad now built into nutpieR
+#trim_pars <- function(nutfit, pars, exclude = TRUE){
+#    allpars <- attributes(nutfit)$dimnames[[3]]
+#    dims <- attributes(nutfit)$dim
+#
+#    idx <- lapply(1:length(pars), function(i) {
+#        pat <- paste("^", pars[i], "(\\[(\\d+,)*\\d+\\])*$", sep = "")
+#        grepl(pat, allpars) }) |>
+#        bind_cols() |>
+#        rowMeans() > 0
+#
+#    # If exclude = TRUE invert index
+#    if (exclude == TRUE) { idx <- !idx}
+#
+#    # Apply the exclusions to nutfit
+#    trimfit <- nutfit[ , , idx ]
+#
+#    attributes(trimfit)$diagnostics <- attributes(nutfit)$diagnostics
+#    attributes(trimfit)$num_chains <- attributes(nutfit)$num_chains
+#    attributes(trimfit)$num_warmup <- attributes(nutfit)$num_warmup
+#    attributes(trimfit)$num_draws <- attributes(nutfit)$num_draws
+#
+#    return(trimfit)
+#}
+
+
 
 
 

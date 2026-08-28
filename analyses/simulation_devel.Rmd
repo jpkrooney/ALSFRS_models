@@ -80,7 +80,6 @@ sim1 %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total - alsfrs_start, group
 
 ```
 
-
 ```{r}
 #Effect visible just on subset?
 
@@ -93,7 +92,6 @@ sim1 %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total - alsfrs_start, group
     geom_line(position = position_jitter(height = 0.3), alpha = 0.5)
 
 ```
-
 
 ```{r}
 
@@ -119,8 +117,6 @@ proact_formula <- as.formula(paste0(
 # sum_to_zero_stanvar <- stanvar(scode = 
 #                                  paste0("target += normal_lpdf(sum(z_1[", 1:length(questions_to_fit), ",]) | 0, 0.001 *N_1);\n"), block = "model")
 ```
-
-
 
 ```{r}
 set.seed(5584324)
@@ -163,7 +159,6 @@ effect_from_sim_study <- function(fit) {
 }
 ```
 
-
 ```{r}
 args_per_fit <- list()
 for(i in 1:length(eff_probs)) {
@@ -178,6 +173,7 @@ fits_mv_probit <- brm_parallel(args_shared = list(formula = bf(proact_formula, f
 summaries_mv_probit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = empty_cumulative()) + set_rescor(FALSE), stanvars = sv, adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE, summarise_fun = effect_from_sim_study)
 }
 ```
+
 ```{r}
 if(keep_fits) {
 for(i in 1:length(eff_probs)) {
@@ -189,7 +185,6 @@ for(i in 1:length(eff_probs)) {
 
 
 ```
-
 
 ```{r}
 
@@ -218,7 +213,6 @@ plot_mv_probit <- all_effects_mv_probit %>%
 plot_mv_probit
 ```
 
-
 ```{r}
 make_stancode(bf(proact_formula, family = cumulative()) + set_rescor(FALSE),
               data = args_per_fit[[1]]$data)
@@ -237,8 +231,6 @@ args_per_fit[[1]]$data$subject_id %>% unique() %>% length()
 # fit_s0 <- model_s0$sample(data = data_s0, init = 0.1)
 
 ```
-
-
 
 ```{r}
 fits_logit <- brm_parallel(args_shared = list(formula = bf(proact_formula, family = cumulative()) + set_rescor(FALSE), adapt_delta = 0.95, init = 0.1), args_per_fit = args_per_fit, cache_dir = cache_dir, cache_fits = TRUE)
@@ -320,6 +312,7 @@ all_effects_lmer_splines <- purrr::map_df(1:length(eff_probs),
 
 
 ```
+
 ```{r}
 plot_lmer_splines <- all_effects_lmer_splines %>%
   mutate(eff_prob = factor(eff_prob)) %>%
@@ -352,8 +345,6 @@ for(i in 1:length(eff_probs)) {
 
 ```
 
-
-
 ```{r}
 effect_from_lmer_simple <- function(fit) {
   # Estimating conf ints. for a linear combination
@@ -382,6 +373,7 @@ all_effects_lmer_simple <- purrr::map_df(1:length(eff_probs),
 
 
 ```
+
 ```{r}
 all_effects_lmer_simple %>%
   mutate(eff_prob = factor(eff_prob)) %>%
@@ -424,7 +416,3 @@ rbind(summarise_brms(all_effects_logit),
     theme(axis.title.x = element_blank(), axis.text.x = element_blank())
 
 ```
-
-
-
-

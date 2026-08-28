@@ -1,0 +1,654 @@
+---
+title: "lme checks "
+author: "Michaela Krynická"
+date: "2026-05-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+library(brms)
+library(ggdist)
+library(cmdstanr)
+library(patchwork)
+library(splines)
+
+# OPTIMIZE PERFORMANCE 
+options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
+cache_dir <- here::here("local_temp_data", "simulation_test")
+if(!dir.exists(cache_dir)) {
+  dir.create(cache_dir, recursive = TRUE)
+}
+
+source(here::here("R", "simulate_data.R"))
+source(here::here("R", "sampling_parallel.R"))
+source(here::here("R", "brm_parallel.R"))
+source(here::here("R", "cluster.R")) #set up future package 
+
+setup_cluster(max_server_workers = 100)
+```
+
+## Data preparation
+
+```{r}
+
+#LOAD DATA
+proact <- read_csv(here::here("private_data/F_PROACT_ALSFRS.csv"))
+
+
+# DATA PREPARATION
+# unify Q5
+# omit vars that are not useful
+# unify question names
+# keep only complete obs
+
+days_per_month <- 365.25 / 12
+
+any(!is.na(proact$Q5a_Cutting_without_Gastrostomy) & !is.na(proact$Q5b_Cutting_with_Gastrostomy) &
+      proact$Q5a_Cutting_without_Gastrostomy != proact$Q5b_Cutting_with_Gastrostomy)
+#TODO: need to resolve this
+
+proact_full <- proact %>% 
+    mutate(Q5_Cutting_Combined = if_else(is.na(Q5a_Cutting_without_Gastrostomy), 
+                                         Q5b_Cutting_with_Gastrostomy, Q5a_Cutting_without_Gastrostomy)) %>%
+    select(-Q5b_Cutting_with_Gastrostomy, -Q5a_Cutting_without_Gastrostomy, 
+           -Q10_Respiratory, -ALSFRS_Total, -Mode_of_Administration, -ALSFRS_Responded_By) %>%
+    filter(if_all(c(starts_with("Q"), starts_with("R")), function(x) { !is.na(x) } )) 
+
+
+question_col_names_proact <- sort(names(proact_full)[grepl("^[QR]", names(proact_full))])
+question_col_names <- sprintf("Q%02d", 1:12)
+question_col_names_translation <- sprintf("Q%02d", 1:12)
+names(question_col_names_translation) <- question_col_names_proact
+
+proact_standardized <- proact_full %>%
+    rename_with(function(x) { question_col_names_translation[x]}, .cols = all_of(question_col_names_proact)) %>%
+    rename(alsfrs_total = ALSFRS_R_Total) %>%
+    mutate(alsfrs_dly_mnths = ALSFRS_Delta / days_per_month) %>%
+    select(subject_id, all_of(question_col_names), alsfrs_total, alsfrs_dly_mnths) 
+
+
+proact_standardized
+```
+
+## Simulate data
+
+```{r}
+#TODO:
+#co všechno můžu variovat:
+    #n_pacientů 
+    #eff_prob 
+    #tvar trajektorie pacientů (počet pozorování na každého pacienta)
+    #no. of questions 
+
+#1) variuj n
+    #problém: když nastaví replace = TRUE, dostanu "Bad selection" why?
+
+```
+
+```{r}
+
+# SIMULATION SCENARIO
+nsims = 100
+n_distinct(proact_standardized$subject_id)
+n_subjects_per_group <- c(rep(50, times = nsims) , rep(100, times = nsims), rep(500, times = nsims), rep(1000, times = nsims),rep(1400, times = nsims))
+#eff_probs <- rep(c(0.5, 0.6, 0.7, 0.8, 0.9, 1), times = nsims)
+eff_prob <- 0.65
+
+
+```
+
+```{r}
+
+# SIMULATE DATA 
+set.seed(468652233)
+
+
+sims <- list()
+for(i in 1:length(n_subjects_per_group)) {
+  sims[[i]] <- simulate_data_from_registry(proact_standardized,
+                                    max_duration = 12,
+                                    min_measurements_per_subject = 4,
+                                    max_measurements_per_subject = 8,
+                                    n_subjects_per_group = n_subjects_per_group[i],
+                                    effect_prob = eff_prob
+                                    )
+  if(i <= 15) {
+  print(sims[[i]] %>% ggplot(aes(x = alsfrs_dly_mnths, y = alsfrs_total - alsfrs_start, group = subject_id,
+                                color = group)) +
+    geom_line(position = position_jitter(height = 0.3), alpha = 0.5) + ggtitle(paste0("n: ", n_subjects_per_group[i]))) 
+  }
+}
+
+```
+
+## Mixed models performance
+
+```{r}
+
+#CHOOSE THE QUESTIONS TO BE MODELLED 
+questions_to_fit <- question_col_names[] #change the no. of questions here 
+```
+
+### Lme4 Simple
+
+```{r}
+
+# FIT SIMPLE LMER MODEL
+fits_lmer_simple <- purrr::map(sims, function(data_for_lmer) {
+       data_for_lmer$alsfrs_sum_subset <-  rowSums(data_for_lmer[, questions_to_fit])
+  lme4::lmer(alsfrs_sum_subset ~ 1 + alsfrs_dly_mnths*group+ (1 |subject_id), data = data_for_lmer)
+})
+
+fits_lmer_simple_rslope  <- purrr::map(sims, function(data_for_lmer) {
+     data_for_lmer$alsfrs_sum_subset <-  rowSums(data_for_lmer[, questions_to_fit])
+  lme4::lmer(alsfrs_sum_subset ~ 1 + alsfrs_dly_mnths*group+ (1 + alsfrs_dly_mnths |subject_id), data = data_for_lmer)
+})
+
+```
+
+```{r}
+
+#FUNCTION FOR THE LMER SIMPLE EFFECTS 
+effects_lmer_simple <- function(fit) {
+  # Estimating conf ints. for a linear combination
+  # Based on https://bookdown.org/ccolonescu/RPoE4/intervalest.html
+  vc <- vcov(fit)
+  
+  lincomb <- rep(0, nrow(vc))
+  names(lincomb) <- rownames(vc)
+  lincomb["groupTreatment"] <- 1
+  lincomb["alsfrs_dly_mnths:groupTreatment"] <- 12
+
+  alpha <- c(0.5, 0.05)
+  estimate <- as.numeric(lincomb %*% fit@beta)
+  df <- df.residual(fit)
+  tcr <- qt(1-alpha/2, df)
+  estimate_se <- as.numeric(sqrt( lincomb %*% (vc %*% lincomb)))
+  lower <- estimate - tcr*estimate_se
+  upper <- estimate + tcr*estimate_se
+  data.frame(estimate = estimate, lower95 = lower[2], lower50 = lower[1], upper50 = upper[1],
+             upper95 = upper[2])
+}
+
+```
+
+```{r}
+
+# COMPUTE THE EFFECTS AND ORGANIZE THEM IN A SINGLE DATAFRAME 
+all_effects_lmer_simple <- purrr::map_df(1:length(n_subjects_per_group), 
+                             ~ cbind(data.frame(id = .x, type = "lmer4_simple", n_subjects_per_group = n_subjects_per_group[.x], effects_lmer_simple(fits_lmer_simple[[.x]]))))
+
+all_effects_lmer_simple_rslope <- purrr::map_df(1:length(n_subjects_per_group), 
+                             ~ cbind(data.frame(id = .x, type = "lmer4_simple_rslope", n_subjects_per_group = n_subjects_per_group[.x], effects_lmer_simple(fits_lmer_simple_rslope[[.x]]))))
+
+```
+
+```{r}
+
+shared_range <-  c(-10,15)
+# PLOT LMER SIMPLE 
+plot_lmer_simple <- all_effects_lmer_simple %>%
+  mutate(n_subjects_per_group = factor(n_subjects_per_group)) %>%
+  ggplot(aes(x = n_subjects_per_group, group = id)) + 
+    geom_hline(yintercept = 0) +
+    geom_linerange(aes(ymin = lower50, ymax = upper50), size = 1.2, position = position_dodge(width = 0.3)) +
+    geom_linerange(aes(ymin = lower95, ymax = upper95), position = position_dodge(width = 0.3)) +
+    geom_point(aes(y = estimate), position = position_dodge(width = 0.3), size = 3) +
+    expand_limits(y = shared_range) +
+    scale_y_continuous(breaks = seq(shared_range[1], shared_range[2], by = 1)) +
+    ggtitle("Lme4 simple")
+
+plot_lmer_simple
+
+plot_lmer_simple_rslope <- all_effects_lmer_simple_rslope %>%
+  mutate(n_subjects_per_group = factor(n_subjects_per_group)) %>%
+  ggplot(aes(x = n_subjects_per_group, group = id)) + 
+    geom_hline(yintercept = 0) +
+    geom_linerange(aes(ymin = lower50, ymax = upper50), size = 1.2, position = position_dodge(width = 0.3)) +
+    geom_linerange(aes(ymin = lower95, ymax = upper95), position = position_dodge(width = 0.3)) +
+    geom_point(aes(y = estimate), position = position_dodge(width = 0.3), size = 3) +
+    expand_limits(y = shared_range) +
+    scale_y_continuous(breaks = seq(shared_range[1], shared_range[2], by = 1)) +
+    ggtitle("Lme4 simple with random slope")
+
+plot_lmer_simple_rslope
+
+
+```
+
+\
+
+### Lme4 Splines
+
+```{r}
+
+# FIT LMER SPLINES MODEL
+get_spline_coeffs <- function(x) {
+  res <- ns(x, knots = 6, Boundary.knots = c(0, 12))
+  colnames(res) <- paste0("dly_mnths_spline_", 1:ncol(res))
+  res
+}
+
+fits_lmer_splines <- purrr::map(sims, function(data_for_lmer) {
+    
+     spline_data <- ns(data_for_lmer$alsfrs_dly_mnths, 2)
+         data_for_lmer <- cbind(data_for_lmer,
+                           get_spline_coeffs(data_for_lmer$alsfrs_dly_mnths))
+         
+             data_for_lmer$alsfrs_sum_subset <- rowSums(data_for_lmer[, questions_to_fit])
+     
+  lme4::lmer(alsfrs_sum_subset ~ 1 + dly_mnths_spline_1 * group
+             + dly_mnths_spline_2 * group + (1 |subject_id), data = data_for_lmer)
+})
+
+fits_lmer_splines_rslope <- purrr::map(sims, function(data_for_lmer) {
+    
+     spline_data <- ns(data_for_lmer$alsfrs_dly_mnths, 2)
+         data_for_lmer <- cbind(data_for_lmer,
+                           get_spline_coeffs(data_for_lmer$alsfrs_dly_mnths))
+             
+         data_for_lmer$alsfrs_sum_subset <- rowSums(data_for_lmer[, questions_to_fit])
+     
+  lme4::lmer(alsfrs_sum_subset ~ 1 + dly_mnths_spline_1 * group
+             + dly_mnths_spline_2 * group + (1 + alsfrs_dly_mnths |subject_id), data = data_for_lmer)
+})
+
+
+
+```
+
+```{r}
+
+#FUNCTION FOR THE LMER SPLINES EFFECTS 
+effects_lmer_splines <- function(fit) {
+  # Estimating conf ints. for a linear combination
+  # Based on https://bookdown.org/ccolonescu/RPoE4/intervalest.html
+  vc <- vcov(fit)
+  
+  spline_coeffs_0 <- get_spline_coeffs(0)
+  spline_coeffs_12 <- get_spline_coeffs(12)
+  spline_coeffs_diff <- spline_coeffs_12 - spline_coeffs_0
+  
+  lincomb <- rep(0, nrow(vc))
+  names(lincomb) <- rownames(vc)
+  lincomb["groupTreatment"] <- 1
+  lincomb["dly_mnths_spline_1:groupTreatment"] <- spline_coeffs_diff[1]
+  lincomb["groupTreatment:dly_mnths_spline_2"] <- spline_coeffs_diff[2]
+  
+  alpha <- c(0.5, 0.05)
+  estimate <- as.numeric(lincomb %*% fit@beta)
+  df <- df.residual(fit)
+  tcr <- qt(1-alpha/2, df)
+  estimate_se <- as.numeric(sqrt( lincomb %*% (vc %*% lincomb)))
+  lower <- estimate - tcr*estimate_se
+  upper <- estimate + tcr*estimate_se
+  data.frame(estimate = estimate, lower95 = lower[2], lower50 = lower[1], upper50 = upper[1],
+             upper95 = upper[2])
+}
+
+
+```
+
+```{r}
+
+#COMPUTE THE EFFECTS AND ORGANIZE THEM IN A SINGLE DATAFRAME 
+all_effects_lmer_splines <- purrr::map_df(1:length(n_subjects_per_group), 
+                             ~ cbind(data.frame(id = .x, type = "lmer4_splines", n_subjects_per_group = n_subjects_per_group[.x], effects_lmer_splines(fits_lmer_splines[[.x]]))))
+
+
+all_effects_lmer_splines_rslope <- purrr::map_df(1:length(n_subjects_per_group), 
+                             ~ cbind(data.frame(id = .x, type = "lmer4_splines_rslope", n_subjects_per_group = n_subjects_per_group[.x], effects_lmer_splines(fits_lmer_splines_rslope[[.x]]))))
+```
+
+```{r}
+
+#PLOT LMER SPLINES 
+plot_lmer_splines <- all_effects_lmer_splines %>%
+  mutate(n_subjects_per_group = factor(n_subjects_per_group)) %>%
+  ggplot(aes(x = n_subjects_per_group, group = id)) + 
+    geom_hline(yintercept = 0) +
+    geom_linerange(aes(ymin = lower50, ymax = upper50), size = 1.2, position = position_dodge(width = 0.3)) +
+    geom_linerange(aes(ymin = lower95, ymax = upper95), position = position_dodge(width = 0.3)) +
+    geom_point(aes(y = estimate), position = position_dodge(width = 0.3), size = 3) +
+    expand_limits(y = shared_range) +
+    scale_y_continuous(breaks = seq(shared_range[1], shared_range[2], by = 1)) +
+    ggtitle("Lme4 splines")
+
+plot_lmer_splines
+
+plot_lmer_splines_rslope <- all_effects_lmer_splines_rslope %>%
+  mutate(n_subjects_per_group = factor(n_subjects_per_group)) %>%
+  ggplot(aes(x = n_subjects_per_group, group = id)) + 
+    geom_hline(yintercept = 0) +
+    geom_linerange(aes(ymin = lower50, ymax = upper50), size = 1.2, position = position_dodge(width = 0.3)) +
+    geom_linerange(aes(ymin = lower95, ymax = upper95), position = position_dodge(width = 0.3)) +
+    geom_point(aes(y = estimate), position = position_dodge(width = 0.3), size = 3) +
+    expand_limits(y = shared_range) +
+    scale_y_continuous(breaks = seq(shared_range[1], shared_range[2], by = 1)) +
+    ggtitle("Lme4 splines with random slope")
+
+plot_lmer_splines_rslope
+
+plot_lmer_simple
+plot_lmer_simple_rslope
+
+
+```
+
+### Coverage
+
+```{r}
+#ESTIMATING THE TRUE EFFECT
+true_lmer_simple <- all_effects_lmer_simple %>%
+    filter(n_subjects_per_group == 1400) %>%
+    summarise(mean(estimate)) %>%
+    as.numeric()
+
+true_lmer_simple_rslope <- all_effects_lmer_simple_rslope %>%
+    filter(n_subjects_per_group == 1400) %>%
+    summarise(mean(estimate)) %>%
+    as.numeric()
+
+true_lmer_spline <- all_effects_lmer_splines %>%
+    filter(n_subjects_per_group == 1400) %>%
+    summarise(mean(estimate)) %>%
+    as.numeric()
+
+true_lmer_spline_rslope <- all_effects_lmer_splines_rslope %>%
+    filter(n_subjects_per_group == 1400) %>%
+    summarise(mean(estimate)) %>%
+    as.numeric()
+
+true_effect_lmer <- mean(c(true_lmer_simple,true_lmer_simple_rslope, true_lmer_spline, true_lmer_spline_rslope))
+```
+
+```{r}
+#CHECK THE COVERAGE 
+summary_lmer <- rbind(all_effects_lmer_simple,
+                all_effects_lmer_simple_rslope,
+                all_effects_lmer_splines,
+                all_effects_lmer_splines_rslope) %>%
+      mutate(effect = true_effect_lmer, 
+             covered = effect <= upper95 & effect >= lower95, 
+             length = upper95 - lower95) %>%
+    group_by(type, n_subjects_per_group ) %>%
+    summarise(coverage = mean(covered), 
+              meanlength = mean(length),
+              .groups = "drop") %>%            
+    group_by(n_subjects_per_group) %>%                      
+    mutate(RE = meanlength[type == "lmer4_simple"] / meanlength) %>%
+    ungroup()
+
+summary_lmer
+```
+
+## Logit
+
+### Logit linear
+
+```{r}
+# SUBSAMPLE OF SIMS
+nsims_sub = 1
+n_subjects_per_group <- c(rep(50, times = nsims) , rep(100, times = nsims), rep(500, times = nsims), rep(1000, times = nsims),rep(1400, times = nsims))
+#eff_probs <- rep(c(0.5, 0.6, 0.7, 0.8, 0.9, 1), times = nsims)
+eff_prob <- 0.65
+
+n_subjects <- length(unique(n_subjects_per_group))
+
+indices_to_keep <- unlist(lapply(1:n_subjects, function(i) {
+  start_idx <- (i - 1) * nsims + 1
+  end_idx <- start_idx + nsims_sub - 1
+  return(start_idx:end_idx)
+}))
+
+sims_sub <- sims[indices_to_keep]
+n_subjects_per_group_sub <- n_subjects_per_group[indices_to_keep]
+```
+
+```{r}
+
+question_to_fit <- question_col_names[]
+
+args_per_fit <- list()
+for(i in 1:length(sims_sub)) {
+  data_for_fit <- sims_sub[[i]] %>%
+  mutate(across(all_of(question_col_names), function(x) { x + 1 }))
+  args_per_fit[[i]] <- list(data = data_for_fit)
+}
+
+#RANDOM INTERCEPT FORMULA
+logit_formula <- as.formula(paste0(
+    "mvbind(", paste0(questions_to_fit, collapse = ", "),
+    ") ~ 1 + alsfrs_dly_mnths*group + (1 | p | subject_id)"
+))
+
+
+#RANDOM SLOPE FORMUILA
+logit_formula_rslope <- as.formula(paste0(
+    "mvbind(", paste0(questions_to_fit, collapse = ", "),
+    ") ~ 1 + alsfrs_dly_mnths*group + (1 + alsfrs_dly_mnths | p | subject_id)"
+))
+
+```
+
+```{r}
+#QUICKLY CHANGE SETTINGs
+n_chains <- 2
+n_iter <- 2000
+
+#RANDOM INTERCEPT
+fits_logit <- brm_parallel(
+    args_shared = list(formula = bf(logit_formula, family = cumulative()) + set_rescor(FALSE),
+                                    adapt_delta = 0.95,
+                                    init = 0.1,
+                                    chains = n_chains,
+                                    iter = n_iter,
+                                    warmup = 1000),
+    args_per_fit = args_per_fit,
+    cache_dir = cache_dir,
+    cache_fits = TRUE,
+    future.globals = FALSE)
+
+#RANDOM SLOPE
+fits_logit_rslope <- brm_parallel(
+    args_shared = list(formula = bf(logit_formula_rslope, family = cumulative()) + set_rescor(FALSE),
+                                    adapt_delta = 0.95,
+                                    init = 0.1,
+                                    chains = n_chains,
+                                    iter = n_iter,
+                                    warmup = 1000),
+    args_per_fit = args_per_fit,
+    cache_dir = cache_dir,
+    cache_fits = TRUE,
+    future.globals = FALSE)
+
+```
+
+```{r}
+#FUNCTION FOR THE LOGIT EFFECTS 
+#(the only change in the original function is the -1 in the col_values)
+effects_logit <- function(fit) {
+  predict_data <- data.frame(group = c("Control", "Control", "Treatment", "Treatment"),
+                             alsfrs_dly_mnths = c(0, 12, 0, 12))
+  
+  pred <- posterior_epred(fit, newdata = predict_data, re_formula = NA)
+  
+  expected_sum <- function(x) {
+    col_values <- as.integer(colnames(x)) - 1 #back to the real values of the categories
+    multiplied <- sweep(x, MARGIN = 2, STATS = col_values, FUN = "*")
+    rowSums(multiplied)
+  }
+  
+  start_control <- expected_sum(pred[,1,])
+  end_control <- expected_sum(pred[,2,])
+  start_treatment <- expected_sum(pred[,3,])
+  end_treatment <- expected_sum(pred[,4,])
+  
+  (end_treatment - start_treatment) - (end_control - start_control)
+}
+
+```
+
+```{r}
+#COMPUTE THE EFFECTS AND ORGANIZE THEM IN A SINGLE DATAFRAME 
+all_effects_logit <- purrr::map_df(1:length(n_subjects_per_group_sub),
+                             ~ data.frame(id = .x, type = "logit", n_subjects_per_group = n_subjects_per_group_sub[.x], estimate = effects_logit(fits_logit[[.x]])))
+
+
+#RANDOM SLOPE
+ all_effects_logit_rslope <- purrr::map_df(1:length(n_subjects_per_group_sub),
+                             ~ data.frame(id = .x, type = "logit_rslope", n_subjects_per_group = n_subjects_per_group_sub[.x], estimate = effects_logit(fits_logit_rslope[[.x]])))
+
+```
+
+```{r}
+
+#VISUALIZE THE EFFECTS 
+plot_logit <- all_effects_logit %>%
+  mutate(n_subjects_per_group = factor(n_subjects_per_group)) %>%
+  ggplot(aes(x = n_subjects_per_group, group = id, y = estimate)) + 
+    geom_hline(yintercept = 0) +
+    stat_pointinterval(position = position_dodge(width = 0.3)) + 
+    #expand_limits(y = shared_range) +
+    ggtitle("Logit")
+plot_logit
+
+
+#RANDOM SLOPE
+plot_logit_rslope <- all_effects_logit_rslope %>%
+  mutate(n_subjects_per_group = factor(n_subjects_per_group)) %>%
+  ggplot(aes(x = n_subjects_per_group, group = id, y = estimate)) + 
+    geom_hline(yintercept = 0) +
+    stat_pointinterval(position = position_dodge(width = 0.3)) + 
+    #expand_limits(y = shared_range) +
+    ggtitle("Logit with random slope")
+plot_logit_rslope
+```
+
+### Logit TPR Splines
+
+```{r}
+
+#RANDOM SLOPE AND TPR SPLINE
+logit_formula_rslope_TPR <- as.formula(paste0(
+    "mvbind(", paste0(questions_to_fit, collapse = ", "),
+    ") ~ 1 + s(alsfrs_dly_mnths, by = group) + (1 + alsfrs_dly_mnths | p | subject_id)"
+))
+
+
+fits_logit_rslope_TPR <- brm_parallel(
+    args_shared = list(formula = bf(logit_formula_rslope_TPR, family = cumulative()) + set_rescor(FALSE),
+                                    adapt_delta = 0.95,
+                                    init = 0.1,
+                                    chains = n_chains,
+                                    iter = n_iter,
+                                    warmup = 1000),
+    args_per_fit = args_per_fit,
+    cache_dir = cache_dir,
+    cache_fits = TRUE,
+    future.globals = FALSE)
+
+
+
+```
+
+```{r}
+#COMPUTE THE EFFECTS AND ORGANIZE THEM IN A SINGLE DATAFRAME 
+all_effects_logit_rslope_TPR <- purrr::map_df(1:length(n_subjects_per_group_sub),
+                             ~ data.frame(id = .x, type = "logit_rslope_TPR", n_subjects_per_group = n_subjects_per_group_sub[.x], estimate = effects_logit(fits_logit_rslope_TPR[[.x]])))
+
+```
+
+```{r}
+
+#VISUALIZE THE EFFECTS 
+
+plot_logit_rslope_TPR <- all_effects_logit_rslope_TPR %>%
+  mutate(n_subjects_per_group = factor(n_subjects_per_group)) %>%
+  ggplot(aes(x = n_subjects_per_group, group = id, y = estimate)) + 
+    geom_hline(yintercept = 0) +
+    stat_pointinterval(position = position_dodge(width = 0.3)) + 
+    #expand_limits(y = shared_range) +
+    ggtitle("Logit with random slope and TPR splines")
+plot_logit_rslope_TPR
+```
+
+### Coverage
+
+```{r}
+#ESTIMATING THE TRUE EFFECT
+true_logit <- all_effects_logit %>%
+    filter(n_subjects_per_group == 1400) %>%
+    summarise(mean(estimate)) %>%
+    as.numeric()
+
+true_logit_rslope <- all_effects_logit_rslope %>%
+    filter(n_subjects_per_group == 1400) %>%
+    summarise(mean(estimate)) %>%
+    as.numeric()
+
+true_logit_rslope_TPR <- all_effects_logit_rslope_TPR %>%
+    filter(n_subjects_per_group == 1400) %>%
+    summarise(mean(estimate)) %>%
+    as.numeric()
+
+
+true_effect_logit <- mean(c(true_logit,true_logit_rslope, true_logit_rslope_TPR))
+true_effect <- mean(c(true_effect_lmer, true_effect_logit))
+
+```
+
+```{r}
+summarise_brms <- function(all_effects) {
+  all_effects %>% group_by(type, n_subjects_per_group, id) %>%
+    summarise(lower95 = quantile(estimate, 0.025),
+              lower50 = quantile(estimate, 0.25),
+              upper50 = quantile(estimate, 0.75),
+              upper95 = quantile(estimate, 0.975),
+              estimate = mean(estimate),
+              .groups = "drop")
+}
+
+
+#CHECK THE COVERAGE LOGIT ONLY 
+summary_logit <- rbind(summarise_brms(all_effects_logit),
+                 summarise_brms(all_effects_logit_rslope),
+                 summarise_brms(all_effects_logit_rslope_TPR)) %>%
+      mutate(effect = true_effect_logit, 
+             covered = effect <= upper95 & effect >= lower95, 
+             length = upper95 - lower95) %>%
+    group_by(type, n_subjects_per_group ) %>%
+    summarise(coverage = mean(covered), 
+              meanlength = mean(length),
+              .groups = "drop")           
+
+summary_logit
+
+#CHECK COVERAGE ALL
+summary <- rbind(all_effects_lmer_simple,
+                all_effects_lmer_simple_rslope,
+                all_effects_lmer_splines,
+                all_effects_lmer_splines_rslope,
+                summarise_brms(all_effects_logit),
+                summarise_brms(all_effects_logit_rslope),
+                summarise_brms(all_effects_logit_rslope_TPR)) %>%
+      mutate(effect = true_effect, 
+             covered = effect <= upper95 & effect >= lower95, 
+             length = upper95 - lower95) %>%
+    group_by(type, n_subjects_per_group ) %>%
+    summarise(coverage = mean(covered), 
+              meanlength = mean(length),
+              .groups = "drop") %>%            
+    group_by(n_subjects_per_group) %>%                      
+    mutate(RE = meanlength[type == "lmer4_simple"] / meanlength) %>%
+    ungroup()
+
+summary
+```

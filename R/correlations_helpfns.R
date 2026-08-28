@@ -12,7 +12,7 @@ predcor_dim1 <- function( df_long, fitobj, timevar, times = 6:36, nsamp = 2000){
     linpreds <- posterior_linpred(fitobj,
                                   newdata = new_data,
                                   allow_new_levels = TRUE,
-                                  nsamples = nsamp)
+                                  draws = nsamp)
 
     # make empty array to hold correlations
     per_sample_cor <- array(NA_real_, c(nsamp, length(all_questions), length(all_questions)  ))
@@ -39,7 +39,7 @@ predcor_multv <- function( fitobj, timevar, times = 6:36, nsamp = 2000){
     linpreds <- posterior_linpred(fitobj,
                                   newdata = new_data,
                                   allow_new_levels = TRUE,
-                                  nsamples = nsamp)
+                                  draws = nsamp)
 
     # Create a list of datasets for each sample
     post_datasets <- lapply(1:dim(linpreds)[1], function(i) {
@@ -66,7 +66,7 @@ predcor_cratio<- function( df_long, fitobj, timevar, times = 6:36, nsamp = 2000)
     linpreds <- posterior_linpred(fitobj,
                                   newdata = new_data,
                                   allow_new_levels = TRUE,
-                                  nsamples = nsamp)
+                                  draws = nsamp)
 
     # make empty array to hold correlations
     per_sample_cor <- array(NA_real_, c(nsamp, length(all_questions), length(all_questions)  ))

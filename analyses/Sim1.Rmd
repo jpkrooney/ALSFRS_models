@@ -1,0 +1,433 @@
+---
+title: "Sim1"
+author: "Michaela Krynická"
+date: "2026-07-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+library(brms)
+library(ggdist)
+library(cmdstanr)
+library(patchwork)
+library(splines)
+
+# OPTIMIZE PERFORMANCE 
+options(mc.cores = parallel::detectCores(), brms.backend = "cmdstanr")
+cache_dir <- here::here("local_temp_data", "simulation_test")
+if(!dir.exists(cache_dir)) {
+  dir.create(cache_dir, recursive = TRUE)
+}
+
+source(here::here("R", "data_prep.R"))
+source(here::here("R", "simulate_data.R"))
+source(here::here("R", "effect_functions.R"))
+source(here::here("R", "sampling_parallel.R"))
+source(here::here("R", "brm_parallel.R"))
+source(here::here("R", "cluster.R")) #set up future package 
+
+setup_cluster(max_server_workers = 100)
+```
+
+```{r}
+#LOAD DATA
+proact <- read_csv(here::here("private_data/F_PROACT_ALSFRS.csv"))
+proact_standardized <- data_prep(proact)
+```
+
+## Simulate data
+
+```{r}
+# SIMULATION SCENARIO
+#co všechno můžu variovat:
+#n_pacientů 
+#eff_prob 
+#tvar trajektorie pacientů (počet pozorování na každého pacienta)
+#no. of questions 
+
+nsims = 100
+n_subj_per_group <- 50
+eff_probs <- rep(c(0.5, 0.8), times = nsims) 
+question_col_names <- sprintf("Q%02d", 1:12)
+questions_to_fit <- question_col_names
+```
+
+```{r}
+# SIMULATE DATA 
+set.seed(468652233)
+
+
+sims <- list()
+for(i in 1:length(eff_probs)) {
+    sims[[i]] <- simulate_data_from_registry(proact_standardized,
+                                             max_duration = 12,
+                                             min_measurements_per_subject = 4,
+                                             max_measurements_per_subject = 8,
+                                             n_subjects_per_group = n_subj_per_group,
+                                             effect_prob = eff_probs[i])
+}
+```
+
+## LMMS
+
+### Lme4 Simple
+
+```{r}
+
+# FIT SIMPLE LMER MODEL
+fits_lmer_simple <- purrr::map(sims, function(data_for_lmer) {
+       data_for_lmer$alsfrs_sum_subset <- rowSums(data_for_lmer[, questions_to_fit])
+  lme4::lmer(alsfrs_sum_subset ~ 1 + alsfrs_dly_mnths*group+ (1 |subject_id), data = data_for_lmer)
+})
+
+effects_lmer_simple <- purrr::map_df(1:length(eff_probs), 
+                                     ~ cbind(data.frame(id = .x, type = "lmer4_simple", eff_prob = eff_probs[.x], effects_lmer(fits_lmer_simple[[.x]]))))
+
+
+```
+
+```{r}
+
+# COMPUTE THE EFFECTS AND ORGANIZE THEM IN A SINGLE DATAFRAME 
+fits_lmer_simple_rslope  <- purrr::map(sims, function(data_for_lmer) {
+    data_for_lmer$alsfrs_sum_subset <-  rowSums(data_for_lmer[, questions_to_fit])
+    lme4::lmer(alsfrs_sum_subset ~ 1 + alsfrs_dly_mnths*group+ (1 + alsfrs_dly_mnths |subject_id), data = data_for_lmer)
+})
+
+effects_lmer_simple_rslope <- purrr::map_df(1:length(eff_probs), 
+                             ~ cbind(data.frame(id = .x, type = "lmer4_simple_rslope", eff_prob = eff_probs[.x], effects_lmer(fits_lmer_simple_rslope[[.x]]))))
+
+```
+
+### Lme4 Splines
+
+```{r}
+
+get_spline_coeffs <- function(x) {
+  res <- ns(x, knots = 6, Boundary.knots = c(0, 12))
+  colnames(res) <- paste0("dly_mnths_spline_", 1:ncol(res))
+  res
+}
+
+fits_lmer_spline <- purrr::map(sims, function(data_for_lmer) {
+    
+     spline_data <- ns(data_for_lmer$alsfrs_dly_mnths, 2)
+         data_for_lmer <- cbind(data_for_lmer,
+                           get_spline_coeffs(data_for_lmer$alsfrs_dly_mnths))
+         
+             data_for_lmer$alsfrs_sum_subset <- rowSums(data_for_lmer[, questions_to_fit])
+     
+  lme4::lmer(alsfrs_sum_subset ~ 1 + dly_mnths_spline_1 * group
+             + dly_mnths_spline_2 * group + (1 |subject_id), data = data_for_lmer)
+})
+
+effects_lmer_spline <- purrr::map_df(1:length(eff_probs), 
+                                      ~ cbind(data.frame(id = .x, type = "lmer4_splines", eff_prob = eff_probs[.x], effects_lmer_splines(fits_lmer_spline[[.x]]))))
+
+
+```
+
+```{r}
+
+fits_lmer_spline_rslope <- purrr::map(sims, function(data_for_lmer) {
+    
+    spline_data <- ns(data_for_lmer$alsfrs_dly_mnths, 2)
+    data_for_lmer <- cbind(data_for_lmer,
+                           get_spline_coeffs(data_for_lmer$alsfrs_dly_mnths))
+    
+    data_for_lmer$alsfrs_sum_subset <- rowSums(data_for_lmer[, questions_to_fit])
+    
+    lme4::lmer(alsfrs_sum_subset ~ 1 + dly_mnths_spline_1 * group
+               + dly_mnths_spline_2 * group + (1 + alsfrs_dly_mnths |subject_id), data = data_for_lmer)
+})
+
+effects_lmer_spline_rslope <- purrr::map_df(1:length(eff_probs), 
+                             ~ cbind(data.frame(id = .x, type = "lmer4_splines_rslope", eff_prob = eff_probs[.x], effects_lmer_splines(fits_lmer_spline_rslope[[.x]]))))
+```
+
+## Logit
+
+### Linear
+
+```{r}
+#PARAMETERS OF A BAYESIAN FITTING
+#args shared for all logit fits 
+args_sh = list(adapt_delta = 0.95,
+                init = 0.1,
+                chains = 3,
+                iter = 3000,
+                warmup = 1000)
+
+args_per_fit <- list()
+for(i in 1:length(sims)) {
+    data_for_fit <- sims[[i]] %>%
+        mutate(across(all_of(question_col_names), function(x) { x + 1 }))
+    args_per_fit[[i]] <- list(data = data_for_fit)
+}
+
+```
+
+```{r}
+
+#RANDOM INTERCEPT
+logit_formula <- as.formula(paste0(
+    "mvbind(", paste0(questions_to_fit, collapse = ", "),
+    ") ~ 1 + alsfrs_dly_mnths*group + (1 | p | subject_id)"
+))
+
+summary_logit <- brm_parallel(
+    args_shared = c(list(formula = bf(logit_formula, family = cumulative()) + set_rescor(FALSE)), 
+                    args_sh),
+    args_per_fit = args_per_fit,
+    cache_dir = cache_dir,
+    cache_fits = TRUE,
+    cache_summaries = TRUE,
+    summarise_fun = effect_from_sim_study,
+    future.globals = list("effect_from_sim_study" = effect_from_sim_study))
+
+effects_logit <- purrr::map_df(1:length(eff_probs), 
+                                   ~ data.frame(id = .x, type = "logit", eff_prob = eff_probs[.x], estimate = summary_logit[[.x]]$effect_samples))
+
+```
+
+```{r}
+
+#RANDOM SLOPE 
+logit_formula_rslope <- as.formula(paste0(
+    "mvbind(", paste0(questions_to_fit, collapse = ", "),
+    ") ~ 1 + alsfrs_dly_mnths*group + (1 + alsfrs_dly_mnths | p | subject_id)"))
+
+summary_logit_rslope <- brm_parallel(
+    args_shared = c(list(formula = bf(logit_formula_rslope, family = cumulative()) + set_rescor(FALSE)), 
+                    args_sh),
+    args_per_fit = args_per_fit,
+    cache_dir = cache_dir,
+    cache_fits = TRUE,
+    cache_summaries = TRUE,
+    summarise_fun = effect_from_sim_study,
+    future.globals = list("effect_from_sim_study" = effect_from_sim_study))
+
+effects_logit_rslope <- purrr::map_df(1:length(eff_probs), 
+                               ~ data.frame(id = .x, type = "logit_rslope", eff_prob = eff_probs[.x], estimate = summary_logit_rslope[[.x]]$effect_samples))
+
+
+```
+
+```{r}
+#RANDOM SLOPE 
+logit_formula_rslope_visit <- as.formula(paste0(
+    "mvbind(", paste0(questions_to_fit, collapse = ", "),
+    ") ~ 1 + alsfrs_dly_mnths*group + (1 + alsfrs_dly_mnths | p | subject_id) +  (1 | q | subject_id:visit_id)"))
+
+summary_logit_rslope_visit <- brm_parallel(
+    args_shared = c(list(formula = bf(logit_formula_rslope_visit, family = cumulative()) + set_rescor(FALSE)), 
+                    args_sh),
+    args_per_fit = args_per_fit,
+    cache_dir = cache_dir,
+    cache_fits = TRUE,
+    cache_summaries = TRUE,
+    summarise_fun = effect_from_sim_study,
+    future.globals = list("effect_from_sim_study" = effect_from_sim_study))
+
+effects_logit_rslope_visit <- purrr::map_df(1:length(eff_probs), 
+                                      ~ data.frame(id = .x, type = "logit_rslope_visit", eff_prob = eff_probs[.x], estimate = summary_logit_rslope_visit[[.x]]$effect_samples))
+
+
+```
+
+### Linear + DISC
+
+```{r}
+
+#RANDOM INTERCEPT
+summary_logit_disc <- brm_parallel(
+    args_shared = c(list(formula = bf(logit_formula, disc ~ 0 + alsfrs_dly_mnths,
+                         family = cumulative("logit", link_disc = "log")) + set_rescor(FALSE)), 
+                    args_sh),
+    args_per_fit = args_per_fit,
+    cache_dir = cache_dir,
+    cache_fits = TRUE,
+    cache_summaries = TRUE,
+    summarise_fun = effect_from_sim_study,
+    future.globals = list("effect_from_sim_study" = effect_from_sim_study))
+
+effects_logit_disc <- purrr::map_df(1:length(eff_probs), 
+                                   ~ data.frame(id = .x, type = "logit_disc", eff_prob = eff_probs[.x], estimate = summary_logit_disc[[.x]]$effect_samples))
+
+# make_stancode(formula = bf(logit_formula, disc ~ 0 + alsfrs_dly_mnths,
+#                            family = cumulative("logit", link_disc = "log")) + set_rescor(FALSE),
+# data = args_per_fit[[1]]$data)
+
+    
+    
+
+```
+
+```{r}
+
+#RANDOM SLOPE 
+summary_logit_rslope_disc <- brm_parallel(
+    args_shared = c(list(formula = bf(logit_formula_rslope, disc ~ 0 + alsfrs_dly_mnths,
+                                      family = cumulative("logit", link_disc = "log")) + set_rescor(FALSE)),
+                    args_sh),
+    args_per_fit = args_per_fit,
+    cache_dir = cache_dir,
+    cache_fits = TRUE,
+    cache_summaries = TRUE,
+    summarise_fun = effect_from_sim_study,
+    future.globals = list("effect_from_sim_study" = effect_from_sim_study))
+
+effects_logit_rslope_disc <- purrr::map_df(1:length(eff_probs), 
+                               ~ data.frame(id = .x, type = "logit_rslope_disc", eff_prob = eff_probs[.x], estimate = summary_logit_rslope_disc[[.x]]$effect_samples))
+
+
+```
+
+### TPR Spline
+
+```{r}
+logit_formula_TPR <- as.formula(paste0(
+    "mvbind(", paste0(questions_to_fit, collapse = ", "),
+    ") ~ 1 + s(alsfrs_dly_mnths, by = group) + (1 | p | subject_id)"
+))
+
+summary_logit_TPR <- brm_parallel(
+    args_shared = c(list(formula = bf(logit_formula_TPR, family = cumulative()) + set_rescor(FALSE)), 
+                    args_sh),
+    args_per_fit = args_per_fit,
+    cache_dir = cache_dir,
+    cache_fits = TRUE,
+    cache_summaries = TRUE,
+    summarise_fun = effect_from_sim_study,
+    future.globals = list("effect_from_sim_study" = effect_from_sim_study))
+
+effects_logit_TPR <- purrr::map_df(1:length(eff_probs), 
+                                    ~ data.frame(id = .x, type = "logit_TPR", eff_prob = eff_probs[.x], estimate = summary_logit_TPR[[.x]]$effect_samples))
+
+```
+
+```{r}
+logit_formula_rslope_TPR <- as.formula(paste0(
+    "mvbind(", paste0(questions_to_fit, collapse = ", "),
+    ") ~ 1 + s(alsfrs_dly_mnths, by = group) + (1 + alsfrs_dly_mnths | p | subject_id)"))
+
+summary_logit_rslope_TPR <- brm_parallel(
+    args_shared = c(list(formula = bf(logit_formula_rslope_TPR, family = cumulative()) + set_rescor(FALSE)), 
+                    args_sh),
+    args_per_fit = args_per_fit,
+    cache_dir = cache_dir,
+    cache_fits = TRUE,
+    cache_summaries = TRUE,
+    summarise_fun = effect_from_sim_study,
+    future.globals = list("effect_from_sim_study" = effect_from_sim_study))
+
+effects_logit_rslope_TPR <- purrr::map_df(1:length(eff_probs), 
+                                   ~ data.frame(id = .x, type = "logit_rslope_TPR", eff_prob = eff_probs[.x], estimate = summary_logit_rslope_TPR[[.x]]$effect_samples))
+```
+
+### TPR Spline + DISC
+
+```{r}
+
+summary_logit_TPR_disc <- brm_parallel(
+    args_shared = c(list(formula = bf(logit_formula_TPR, disc ~ 0 + alsfrs_dly_mnths, family = cumulative("logit", link_disc = "log")) + set_rescor(FALSE)), 
+                    args_sh),
+    args_per_fit = args_per_fit,
+    cache_dir = cache_dir,
+    cache_fits = TRUE,
+    cache_summaries = TRUE,
+    summarise_fun = effect_from_sim_study,
+    future.globals = list("effect_from_sim_study" = effect_from_sim_study))
+
+effects_logit_TPR_disc <- purrr::map_df(1:length(eff_probs), 
+                                   ~ data.frame(id = .x, type = "logit_TPR_disc", eff_prob = eff_probs[.x], estimate = summary_logit_TPR_disc[[.x]]$effect_samples))
+
+```
+
+```{r}
+
+summary_logit_rslope_TPR_disc <- brm_parallel(
+    args_shared = c(list(formula = bf(logit_formula_rslope_TPR, disc ~ 0 + alsfrs_dly_mnths, family = cumulative("logit", link_disc = "log")) + set_rescor(FALSE)), 
+                    args_sh),
+    args_per_fit = args_per_fit,
+    cache_dir = cache_dir,
+    cache_fits = TRUE,
+    cache_summaries = TRUE,
+    summarise_fun = effect_from_sim_study,
+    future.globals = list("effect_from_sim_study" = effect_from_sim_study))
+
+effects_logit_rslope_TPR_disc <- purrr::map_df(1:length(eff_probs), 
+                                          ~ data.frame(id = .x, type = "logit_rslope_TPR_disc", eff_prob = eff_probs[.x], estimate = summary_logit_rslope_TPR_disc[[.x]]$effect_samples))
+```
+
+## Results
+
+```{r}
+#FUNCTION BRMS 
+summarise_brms <- function(all_effects) {
+    all_effects %>% group_by(type, eff_prob, id) %>%
+        summarise(lower95 = quantile(estimate, 0.025),
+                  lower50 = quantile(estimate, 0.25),
+                  upper50 = quantile(estimate, 0.75),
+                  upper95 = quantile(estimate, 0.975),
+                  estimate = mean(estimate),
+                  .groups = "drop")
+}
+```
+
+```{r}
+summaries_all <- rbind(effects_lmer_simple,
+                       effects_lmer_simple_rslope,
+                       effects_lmer_spline,
+                       effects_lmer_spline_rslope
+                       # summarise_brms(effects_logit),
+                       # summarise_brms(effects_logit_rslope),
+                       # summarise_brms(effects_logit_disc),
+                       # summarise_brms(effects_logit_rslope_disc),
+                       # summarise_brms(effects_logit_TPR),
+                       # summarise_brms(effects_logit_rslope_TPR),
+                       # summarise_brms(effects_logit_TPR_disc),
+                       # summarise_brms(effects_logit_rslope_TPR_disc)
+) 
+
+    
+```
+
+```{r}
+#COVERAGE 
+cov_all <- summaries_all %>%
+    mutate(eff_prob = factor(eff_prob)) %>%
+    group_by(type, eff_prob) %>%
+    mutate(detect = ifelse(eff_prob == 0.5,sign(lower95)==sign(upper95), lower95 > 0)) %>%
+    summarise(coverage = mean(ifelse(eff_prob == 0.5, lower95 <= 0 & 0 <= upper95, NA)),
+              power = mean(detect),
+              power_low = qbeta(0.025, sum(detect), n() - sum(detect) + 1),
+              power_high = qbeta(0.975, sum(detect) + 1, n() - sum(detect)),
+              mean_width = round(mean(upper95 - lower95), digits = 2),
+              n = n()) 
+cov_all
+```
+
+```{r}
+#DIAGNOSTICS
+diags_all <- collect_diags_all(list(
+    logit = summary_logit,
+    logit_rslope = summary_logit_rslope,
+    logit_disc = summary_logit_disc,
+    logit_rslope_disc = summary_logit_rslope_disc,
+    logit_rslope_visit = summary_logit_rslope_visit,
+    logit_TPR = summary_logit_TPR,
+    logit_rslope_TPR = summary_logit_rslope_TPR,
+    logit_TPR_disc = summary_logit_TPR_disc,
+    logit_rslope_TPR_disc = summary_logit_rslope_TPR_disc
+))
+
+summarise_diags(diags_all)
+```
