@@ -4,8 +4,17 @@ simulate_data_from_registry <- function(standardized_data,
                                          max_measurements_per_subject,
                                          max_duration,
                                          effect_prob,
-                                         choice_criterium = c("slope", "value")
+                                         choice_criterium = c("slope", "value"),
+                                        include_cols = NULL
                                         ){
+
+    # calculate a new alsfrs_total based on included columns
+    if(!is.null(include_cols)){
+        standardized_data <- standardized_data |>
+            mutate(alsfrs_total = rowSums(across(all_of(include_cols))))
+    }
+
+
     choice_criterium <- match.arg(choice_criterium)
     n_subjects <- n_subjects_per_group * 2
     #TODO add time from diagnosis, don't always filter on dly_mnts > 0
