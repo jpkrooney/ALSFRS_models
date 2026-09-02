@@ -1,0 +1,400 @@
+---
+title: "Comparison of different copula structures on mulitquestion simulated data from Irish registry and PROACT"
+format: html
+editor: source
+---
+
+```{r setup}
+#| include: FALSE
+library(tidyverse)
+library(knitr)
+library(ggdist)
+library(patchwork)
+
+source(here::here("R", "post_epred_hetsked.R"))
+
+cache_dir <- here::here("local_temp_data", "simulation_test")
+
+
+# manually set these to match fits
+M <- 400
+eff_probs <- rep(c(0.5, 0.75), times = M)
+n_subjects_per_group <- 50
+
+# load data
+irlsim_ls <- readRDS(paste0(cache_dir, "/sim_irldata_4Q.RDS"))
+proact_ls <- readRDS(paste0(cache_dir, "/sim_proactdata_4Q.RDS"))
+
+
+irl_maxs <- irlsim_ls |>
+    map(\(dat)
+        dat |>
+            group_by(subject_id) |>
+            filter(visit_id == max(visit_id)) |>
+            ungroup() |>
+            select(visit_id))
+
+pro_maxs <- proact_ls |>
+    map(\(dat)
+        dat |>
+            group_by(subject_id) |>
+            filter(visit_id == max(visit_id)) |>
+            ungroup() |>
+            select(visit_id))
+
+```
+
+## Data summary
+
+There were `r length(irlsim_ls)` datasets simulated from the Irish register, and `r length(proact_ls)` datasets simulated from the PROACT data with `r length(unique(eff_probs))` distinct effective sizes used. The number of responses per subject over time are summarised in the following plot:
+
+```{r repliesplot}
+#| echo: FALSE
+
+plotdat <- bind_rows(irl_maxs |>
+              bind_cols(.name_repair = c("unique_quiet")) |>
+              mutate(source = "irish"),
+          pro_maxs |>
+              bind_cols(.name_repair = c("unique_quiet")) |>
+              mutate(source = "proact")) |>
+    pivot_longer(cols = -source,
+                 names_prefix = "visit_id...",
+                 names_to = "m")
+
+p1 <- ggplot(plotdat, aes(x = value)) +
+    geom_histogram(bins = max(plotdat$value)) +
+    ggtitle("Number of longitudinal timepoints") + 
+    theme_minimal() +
+    facet_wrap(~source, ncol = 1)
+print(p1)
+
+```
+
+
+```{r loadpredsummarise}
+#| include: FALSE
+
+# define new_data for fit
+new_data <- data.frame(time2 = c(0, 12, 0, 12),
+                       group = c(0, 0, 1, 1)) |>
+    mutate(interaction = group * time2)
+
+
+# Load fits and predict effect sizes
+irlfits1 <- readRDS(paste0(cache_dir, "/", "2026-08-31_compare_copula_Q4_n50_mvprob_400.RDS"))
+effects_irl1 <- irlfits1 |>
+    map(\(fit) {
+        epreds <- post_epred_mvprobit_hetsked(fit, new_data, mode = "homoskedastic")
+        sum_epreds <- apply(epreds, c(1, 2), sum) -12
+        (sum_epreds[,4] - sum_epreds[,2]) - (sum_epreds[,3] - sum_epreds[,1])
+    })
+rm(irlfits1) ; invisible(gc())
+
+irlfits2 <- readRDS(paste0(cache_dir, "/", "2026-08-31_compare_copula_Q4_n50_mvprobhet_400.RDS"))
+effects_irl2 <- irlfits2 |>
+    map(\(fit) {
+        epreds <- post_epred_mvprobit_hetsked(fit, new_data, mode = c("heteroskedastic"))
+        sum_epreds <- apply(epreds, c(1, 2), sum) -12
+        (sum_epreds[,4] - sum_epreds[,2]) - (sum_epreds[,3] - sum_epreds[,1])
+    })
+rm(irlfits2) ; invisible(gc())
+
+irlfits3 <- readRDS(paste0(cache_dir, "/", "2026-08-31_compare_copula_Q4_n50_mvstudt_n3_400.RDS"))
+effects_irl3 <- irlfits3 |>
+    map(\(fit) {
+        epreds <- post_epred_studthetsked(fit, new_data, nu =3, mode = c("homoskedastic"))
+        sum_epreds <- apply(epreds, c(1, 2), sum) -12
+        (sum_epreds[,4] - sum_epreds[,2]) - (sum_epreds[,3] - sum_epreds[,1])
+    })
+rm(irlfits3) ; invisible(gc())
+
+irlfits4 <- readRDS(paste0(cache_dir, "/", "2026-08-31_compare_copula_Q4_n50_mvstudt_nubeta0.1_400.RDS"))
+effects_irl4 <- irlfits4 |>
+    map(\(fit) {
+        epreds <- post_epred_studthetsked(fit, new_data, mode = c("homoskedastic"))
+        sum_epreds <- apply(epreds, c(1, 2), sum) -12
+        (sum_epreds[,4] - sum_epreds[,2]) - (sum_epreds[,3] - sum_epreds[,1])
+    })
+rm(irlfits4) ; invisible(gc())
+
+irlfits5 <- readRDS(paste0(cache_dir, "/", "2026-08-31_compare_copula_Q4_n50_mvstudt_nubeta0.9_400.RDS"))
+effects_irl5 <- irlfits5 |>
+    map(\(fit) {
+        epreds <- post_epred_studthetsked(fit, new_data,mode = c("homoskedastic"))
+        sum_epreds <- apply(epreds, c(1, 2), sum) -12
+        (sum_epreds[,4] - sum_epreds[,2]) - (sum_epreds[,3] - sum_epreds[,1])
+    })
+rm(irlfits5) ; invisible(gc())
+
+irlfits6 <- readRDS(paste0(cache_dir, "/", "2026-08-31_compare_copula_Q4_n50_mvstudthetsked_nu3_400.RDS"))
+effects_irl6 <- irlfits6 |>
+    map(\(fit) {
+        epreds <- post_epred_studthetsked(fit, new_data, nu = 3.0, mode = c("het2par"))
+        sum_epreds <- apply(epreds, c(1, 2), sum) -12
+        (sum_epreds[,4] - sum_epreds[,2]) - (sum_epreds[,3] - sum_epreds[,1])
+    })
+rm(irlfits6) ; invisible(gc())
+
+
+
+# load predict effects PROACT fit
+proactfits1 <- readRDS(paste0(cache_dir, "/", "2026-09-01_PROACT_compare_copula_Q4_n50_mvprob_400.RDS"))
+effects_proact1 <- proactfits1 |>
+    map(\(fit) {
+        epreds <- post_epred_mvprobit_hetsked(fit, new_data, mode = "homoskedastic")
+        sum_epreds <- apply(epreds, c(1, 2), sum) -12
+        (sum_epreds[,4] - sum_epreds[,2]) - (sum_epreds[,3] - sum_epreds[,1])
+    })
+rm(proactfits1) ; invisible(gc())
+
+proactfits2 <- readRDS(paste0(cache_dir, "/", "2026-09-01_PROACT_compare_copula_Q4_n50_mvprobhet_400.RDS"))
+effects_proact2 <- proactfits2 |>
+    map(\(fit) {
+        epreds <- post_epred_mvprobit_hetsked(fit, new_data, mode = c("heteroskedastic"))
+        sum_epreds <- apply(epreds, c(1, 2), sum) -12
+        (sum_epreds[,4] - sum_epreds[,2]) - (sum_epreds[,3] - sum_epreds[,1])
+    })
+rm(proactfits2) ; invisible(gc())
+
+proactfits3 <- readRDS(paste0(cache_dir, "/", "2026-09-01_PROACT_compare_copula_Q4_n50_mvstudt_n3_400.RDS"))
+effects_proact3 <- proactfits3 |>
+    map(\(fit) {
+        epreds <- post_epred_studthetsked(fit, new_data, nu =3, mode = c("homoskedastic"))
+        sum_epreds <- apply(epreds, c(1, 2), sum) -12
+        (sum_epreds[,4] - sum_epreds[,2]) - (sum_epreds[,3] - sum_epreds[,1])
+    })
+rm(proactfits3) ; invisible(gc())
+
+proactfits4 <- readRDS(paste0(cache_dir, "/", "2026-09-01_PROACT_compare_copula_Q4_n50_mvstudt_nubeta0.1_400.RDS"))
+effects_proact4 <- proactfits4 |>
+    map(\(fit) {
+        epreds <- post_epred_studthetsked(fit, new_data, mode = c("homoskedastic"))
+        sum_epreds <- apply(epreds, c(1, 2), sum) -12
+        (sum_epreds[,4] - sum_epreds[,2]) - (sum_epreds[,3] - sum_epreds[,1])
+    })
+rm(proactfits4) ; invisible(gc())
+
+proactfits5 <- readRDS(paste0(cache_dir, "/", "2026-09-01_PROACT_compare_copula_Q4_n50_mvstudt_nubeta0.9_400.RDS"))
+effects_proact5 <- proactfits5 |>
+    map(\(fit) {
+        epreds <- post_epred_studthetsked(fit, new_data,mode = c("homoskedastic"))
+        sum_epreds <- apply(epreds, c(1, 2), sum) -12
+        (sum_epreds[,4] - sum_epreds[,2]) - (sum_epreds[,3] - sum_epreds[,1])
+    })
+rm(proactfits5) ; invisible(gc())
+
+proactfits6 <- readRDS(paste0(cache_dir, "/", "2026-09-01_PROACT_compare_copula_Q4_n50_mvstudthetsked_nu3_400.RDS"))
+effects_proact6 <- proactfits6 |>
+    map(\(fit) {
+        epreds <- post_epred_studthetsked(fit, new_data, nu = 3.0, mode = c("het2par"))
+        sum_epreds <- apply(epreds, c(1, 2), sum) -12
+        (sum_epreds[,4] - sum_epreds[,2]) - (sum_epreds[,3] - sum_epreds[,1])
+    })
+rm(proactfits6) ; invisible(gc())
+
+
+```
+
+
+```{r summary}
+#| include: FALSE
+
+##### summarise predictions irl
+summ_irl1 <- map_df(1:length(eff_probs),
+                       ~ data.frame(id = .x, eff_prob = eff_probs[[.x]],
+                                    estimate = effects_irl1[[.x]],
+                                    family = "mvprobit", df = "",
+                                    copula = "homosked", data = "irl"))
+summ_irl2 <- map_df(1:length(eff_probs),
+                       ~ data.frame(id = .x, eff_prob = eff_probs[[.x]],
+                                    estimate = effects_irl2[[.x]],
+                                    family = "mvprobit", df = "",
+                                    copula = "heterosked", data = "irl"))
+summ_irl3 <- map_df(1:length(eff_probs),
+                       ~ data.frame(id = .x, eff_prob = eff_probs[[.x]],
+                                    estimate = effects_irl3[[.x]],
+                                    family = "mvstudt", df = "3",
+                                    copula = "homosked", data = "irl"))
+summ_irl4 <- map_df(1:length(eff_probs),
+                       ~ data.frame(id = .x, eff_prob = eff_probs[[.x]],
+                                    estimate = effects_irl4[[.x]],
+                                    family = "mvstudt", df = "prior0.1",
+                                    copula = "homosked", data = "irl"))
+summ_irl5 <- map_df(1:length(eff_probs),
+                       ~ data.frame(id = .x, 
+                                    eff_prob = eff_probs[[.x]],
+                                    estimate = effects_irl5[[.x]],
+                                    family = "mvstudt", df = "prior0.9",
+                                    copula = "homosked", data = "irl"))
+summ_irl6 <- map_df(1:length(eff_probs),
+                       ~ data.frame(id = .x,
+                                    eff_prob = eff_probs[[.x]],
+                                    estimate = effects_irl6[[.x]],
+                                    family = "mvstudt", df = "3",
+                                    copula = "heterosked", data = "irl"))
+
+##### summarise predictions proact
+summ_proact1 <- map_df(1:length(eff_probs),
+                    ~ data.frame(id = .x, eff_prob = eff_probs[[.x]],
+                                 estimate = effects_proact1[[.x]],
+                                 family = "mvprobit", df = "",
+                                 copula = "homosked", data = "proact"))
+summ_proact2 <- map_df(1:length(eff_probs),
+                    ~ data.frame(id = .x, eff_prob = eff_probs[[.x]],
+                                 estimate = effects_proact2[[.x]],
+                                 family = "mvprobit", df = "",
+                                 copula = "heterosked", data = "proact"))
+summ_proact3 <- map_df(1:length(eff_probs),
+                    ~ data.frame(id = .x, eff_prob = eff_probs[[.x]],
+                                 estimate = effects_proact3[[.x]],
+                                 family = "mvstudt", df = "3",
+                                 copula = "homosked", data = "proact"))
+summ_proact4 <- map_df(1:length(eff_probs),
+                    ~ data.frame(id = .x, eff_prob = eff_probs[[.x]],
+                                 estimate = effects_proact4[[.x]],
+                                 family = "mvstudt", df = "prior0.1",
+                                 copula = "homosked", data = "proact"))
+summ_proact5 <- map_df(1:length(eff_probs),
+                    ~ data.frame(id = .x, 
+                                 eff_prob = eff_probs[[.x]],
+                                 estimate = effects_proact5[[.x]],
+                                 family = "mvstudt", df = "prior0.9",
+                                 copula = "homosked", data = "proact"))
+summ_proact6 <- map_df(1:length(eff_probs),
+                    ~ data.frame(id = .x,
+                                 eff_prob = eff_probs[[.x]],
+                                 estimate = effects_proact6[[.x]],
+                                 family = "mvstudt", df = "3",
+                                 copula = "heterosked", data = "proact"))
+
+# combine summaries
+all_summs <- rbind(summ_irl1, summ_irl2, summ_irl3,
+                   summ_irl4, summ_irl5, summ_irl6,
+                   summ_proact1, summ_proact2, summ_proact3,
+                   summ_proact4, summ_proact5, summ_proact6)
+
+# summaries the summaries :D
+summs <- all_summs |>
+    summarise(.by = c(id, data, family, copula, df),
+              eff_prob = unique(eff_prob),
+              q_025 = quantile(estimate, 0.025),
+              mean = mean(estimate),
+              q_975 = quantile(estimate, 0.975),
+              flag1 = ifelse(eff_prob == 0.5 & q_025 > 0 | q_975 < 0, 1, 0),
+              flag2 = ifelse(q_025 > 0, 1, 0)) |>
+    summarise(.by = c(family, data, copula, df, eff_prob),
+              type1error = mean(flag1, na.rm = TRUE),
+              power = mean(flag2)) 
+
+```
+
+
+## Summary statistics of models
+
+#### Type 1 error
+```{r showsummaries}
+#| echo: FALSE
+summs |>
+    filter(eff_prob == 0.5) |>
+    dplyr::select(family, data, copula, df, eff_prob, type1error) |>
+    pivot_wider(id_cols = c(family, copula, df, eff_prob),
+                names_from = data, values_from = type1error,
+                names_prefix = "T1err_") |>
+    arrange(T1err_irl) |>
+    kable()
+
+```
+
+
+
+
+#### Power
+```{r}
+#| echo: FALSE
+
+summs |>
+    filter(eff_prob == 0.75) |>
+    dplyr::select(family, data, copula, df, eff_prob, power) |>
+    pivot_wider(id_cols = c(family, copula, df, eff_prob),
+                names_from = data, values_from = power,
+                names_prefix = "Power_") |>
+    arrange(Power_irl) |>
+    kable()
+
+```
+
+
+#### Visualisation of recovered effect sizes
+
+```{r plotT1err}
+#| echo: FALSE
+#| message: false
+
+plot_T1err_irl_0.5 <- all_summs |>
+    filter(eff_prob == 0.5 & data == "irl") |>
+    mutate(eff_prob = factor(eff_prob),
+           label = paste0(family, "\n", copula, " ", df)) |>
+    ggplot(aes(x =  id, y = estimate, col = copula)) +
+    geom_hline(yintercept = 0) +
+    stat_pointinterval(position = position_dodge(width = 0.3)) +
+    theme_minimal() +
+    ggtitle("Simulated from Irish cohort") +
+    facet_wrap(~ label, ncol = 6)#, scales = "free_y")
+
+plot_T1err_proact_0.5 <- all_summs |>
+    filter(eff_prob == 0.5 & data == "proact") |>
+    mutate(eff_prob = factor(eff_prob),
+           label = paste0(family, "\n", copula, " ", df)) |>
+    ggplot(aes(x =  id, y = estimate, col = copula)) +
+    geom_hline(yintercept = 0) +
+    stat_pointinterval(position = position_dodge(width = 0.3)) +
+    theme_minimal() +
+    ggtitle("Simulated from PROACT data") +
+    facet_wrap(~ label, ncol = 6)
+
+plot_T1err_irl_0.75 <- all_summs |>
+    filter(eff_prob == 0.75 & data == "irl") |>
+    mutate(eff_prob = factor(eff_prob),
+           label = paste0(family, "\n", copula, " ", df)) |>
+    ggplot(aes(x =  id, y = estimate, col = copula)) +
+    geom_hline(yintercept = 0) +
+    stat_pointinterval(position = position_dodge(width = 0.3)) +
+    theme_minimal() +
+    ggtitle("Simulated from Irish cohort") +
+    facet_wrap(~ label, ncol = 6)#, scales = "free_y")
+
+plot_T1err_proact_0.75 <- all_summs |>
+    filter(eff_prob == 0.75 & data == "proact") |>
+    mutate(eff_prob = factor(eff_prob),
+           label = paste0(family, "\n", copula, " ", df)) |>
+    ggplot(aes(x =  id, y = estimate, col = copula)) +
+    geom_hline(yintercept = 0) +
+    stat_pointinterval(position = position_dodge(width = 0.3)) +
+    theme_minimal() +
+    ggtitle("Simulated from PROACT data") +
+    facet_wrap(~ label, ncol = 6)
+
+plot_eff0.5 <- plot_T1err_irl_0.5 + plot_T1err_proact_0.5 +
+    plot_layout(guides = "collect", ncol = 1) +
+    plot_annotation(title = "Difference in expected value by group",
+                    subtitle = paste0(M, " simulations,",
+                                      n_subjects_per_group,
+                                      " subjects per group",
+                                      ", simulated effect prob. = 0.5"))
+print(plot_eff0.5)
+
+
+plot_eff0.75 <- plot_T1err_irl_0.75 + plot_T1err_proact_0.75 +
+    plot_layout(guides = "collect", ncol = 1) +
+    plot_annotation(title = "Difference in expected value by group",
+                    subtitle = paste0(M, " simulations,",
+                                      n_subjects_per_group,
+                                      " subjects per group",
+                                      ", simulated effect prob. = 0.75"))
+print(plot_eff0.75)
+
+
+
+
+```
+

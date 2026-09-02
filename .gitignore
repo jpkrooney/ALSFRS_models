@@ -8,6 +8,7 @@ private_data/
 R/examine_results.html
 R/examine_results.pdf
 R/ALSFRS_data_prep.R
+R/experimental_functions
 
 *.nb.html
 .positai

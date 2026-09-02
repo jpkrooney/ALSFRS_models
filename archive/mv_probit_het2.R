@@ -1,7 +1,7 @@
 empty_cumulative <- function() {
     custom_family(
-        "empty_cumulative", dpars = c("mu"),
-        links = c("identity"), lb = 1,
+        "empty_cumulative", dpars = c("mu", "disc", "Intercept"),
+        links = c("identity", "log", "identity"), lb = 1,
         type = "int", threshold = "flexible", specials = c("ordinal", "ordered_thres", "thres_minus_eta"),
         posterior_epred = posterior_epred_empty_cumulative)
 }
@@ -11,7 +11,7 @@ make_stanvars_mv_probit_base <- function(column_names, rescor_prior_eta = 1) {
 
 
     stan_funs <- "
-      real empty_cumulative_lpmf(int y, real mu, vector intercept) {
+      real empty_cumulative_lpmf(int y, real mu, real disc, vector intercept, vector interceptdisc) {
         return 0;
       }
 
@@ -102,6 +102,12 @@ make_stanvars_mv_probit_bgoodri <- function(column_names, rescor_prior_eta = 1) 
       }
     ")
 
+
+    gatherdiscs <- paste0(paste0("
+        array[", N_dims, "] vector[N] alldiscs;\n       "),
+            paste0("alldiscs[", 1:12, "] = disc_", "Q", sprintf(fmt = "%02d", 1:12), ";\n       ",
+                   collapse = ""))
+
     stan_likelihood <- paste0("
        for(n in 1:N) {
             array[", N_dims, "] real mus = {", paste0("mu_", column_names, "[n]", collapse = ", "), "};
@@ -143,7 +149,8 @@ make_stanvars_mv_probit_bgoodri <- function(column_names, rescor_prior_eta = 1) 
         stanvar(scode = stan_tdata, block = "tdata") +
         stanvar(scode = stan_params, block = "parameters") +
         #stanvar(scode = stan_tparams, block = "tparameters") +
-        stanvar(scode = stan_likelihood, block = "likelihood", position = "end")
+        stanvar(scode = paste0(gatherdiscs, stan_likelihood),
+                block = "likelihood", position = "end")
 
 
     stanvars_mult_probit
