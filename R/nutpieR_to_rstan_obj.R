@@ -1,22 +1,4 @@
-# nutpie ↔ brms bridge layer.
-#
-# nutpie samples a Stan model and returns a 3D draws array.
-# brms wants a `brmsfit` S4 object containing an rstan `stanfit`.
-# This file does the translation.
-#
-# PUBLIC API:
-#   nutpie_to_brms(formula, data, stanmodel, nutfit, family, stanvars)
-#     -> brmsfit                                  # main entry point
-#
-# PRIVATE:
-#   nutpieR_to_rstan_obj(nutfit, stanmodel) -> stanfit (S4)
-#   make_sim_object(nutfit)                 -> list (rstan-style $sim)
-#
-# WARNING: depends on un-exported rstan internals
-# (rstan:::sqrfnames_to_dotfnames, paridx_fun, unique_par,
-#  get_dims_from_fnames, dotfnames_to_sqrfnames). Any rstan
-# version bump can break silently. renv pins rstan; check
-# nutpie_bridge_test.Rmd after any rstan upgrade.
+
 
 
 make_sim_object <- function(nutfit) {
@@ -34,6 +16,18 @@ make_sim_object <- function(nutfit) {
     samples <- posterior::as_draws_list(abind::abind(nutfit, lp__, along = 3))
     names(samples) <- NULL
     class(samples) <- NULL
+
+    # add diagnostics to samples
+    for(i in 1:length(samples)){
+        idx <- which(attributes(nutfit)$diagnostics$chain == i)
+        samp_params <- list(#accept_stat__ = ?,
+                            stepsize__ = diagnostics$step_size[idx],
+                            #treedepth__ = ?
+                            #n_leapfrog__ = ?
+                            divergent__ = as.numeric(diagnostics$diverging[idx]),
+                            energy__ = diagnostics$energy[idx])
+        attr(samples[[i]], "sampler_params") <- samp_params
+    }
 
     # rest of code adapted from rstan::read_stan_csv()
     n <- length(diagnostics$diverging)
@@ -94,7 +88,6 @@ nutpieR_to_rstan_obj <- function(nutfit, stanmodel){
                 stan_args = stan_args,
                 stanmodel = stanmodel,
                 date = "")
-    ## add divergences etc ??
 
     return(stanfit)
 }
@@ -104,7 +97,7 @@ nutpieR_to_rstan_obj <- function(nutfit, stanmodel){
 
 nutpie_to_brms <- function(form, dat, model, fit, family, stanvars = NULL){
     emptybrms <- brm(bf(form, family = family) +
-                         set_rescor(FALSE), stanvars = stanvars, adapt_delta = 0.95, init = 0.1,
+                         set_rescor(FALSE), stanvars = stanvars,
                      data = dat, empty = TRUE)
     #
     rstanobj <- nutpieR_to_rstan_obj(fit, model)

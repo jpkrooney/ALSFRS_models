@@ -56,7 +56,7 @@ make_stanvars_mv_probit_bgoodri <- function(
   }
   sv +
     stanvar(
-      scode = stan_likelihood(model = "mvprobit", N_dims, column_names),
+      scode = stan_likelihood(model = "mvprobit", N_dims, column_names, hetsked = hetsked),
       block = "likelihood",
       position = "end"
     )
@@ -153,7 +153,7 @@ make_stanvars_mv_studt <- function(
   }
   sv +
     stanvar(
-      scode = stan_likelihood(model = "mvstudt", N_dims, column_names),
+      scode = stan_likelihood(model = "mvstudt", N_dims, column_names, hetsked = hetsked),
       block = "likelihood",
       position = "end"
     )

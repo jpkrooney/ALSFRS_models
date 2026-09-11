@@ -174,8 +174,8 @@ stan_params_step2 <- function(N_dims, hetsked = FALSE) {
 
 stan_priors_scales <- paste0(
   "
-  target += normal_lpdf(scale_intercept | 0, 0.5);
-  target += normal_lpdf(scale_slope | 0, 0.5);
+  target += normal_lpdf(scale_intercept | 0, 0.1);
+  target += normal_lpdf(scale_slope | 0, 0.1);
       "
 )
 
@@ -197,11 +197,11 @@ stan_likelihood <- function(
   scale_chk <- if (model == "mvprobit" & hetsked == FALSE) {
     "real scale_d = L_rescor[d,d];"
   } else if (model == "mvprobit" & hetsked == TRUE) {
-    "real scale_d = exp(log(L_rescor[d,d]) + log(scale_intercept[d] - scale_slope[d]* exp(- X_Q01[n, 1]));"
+    "real scale_d = exp(log(L_rescor[d,d]) + (scale_intercept[d] + scale_slope[d]* X_Q01[n, 1]));"
   } else if (model == "mvstudt" & hetsked == FALSE) {
     "real scale_d = exp(log(L_rescor[d,d]) + log(sqrt(w[n]))); // variance for dim from residual correlaiton + student t component"
   } else if (model == "mvstudt" & hetsked == TRUE) {
-    "real scale_d = exp(log(L_rescor[d,d]) + log(scale_intercept[d] - scale_slope[d]* exp(- X_Q01[n, 1]) +
+    "real scale_d = exp(log(L_rescor[d,d]) + (scale_intercept[d] + scale_slope[d]* X_Q01[n, 1]) +
       log(sqrt(w[n]))); // variance for dim from residual correlaiton + student t component"
   }
 
