@@ -20,10 +20,10 @@ make_sim_object <- function(nutfit) {
     # add diagnostics to samples
     for(i in 1:length(samples)){
         idx <- which(attributes(nutfit)$diagnostics$chain == i)
-        samp_params <- list(#accept_stat__ = ?,
+        samp_params <- list(accept_stat__ = diagnostics$mean_tree_accept[idx],
                             stepsize__ = diagnostics$step_size[idx],
-                            #treedepth__ = ?
-                            #n_leapfrog__ = ?
+                            treedepth__ = diagnostics$sdepth[idx],
+                            n_leapfrog__ = diagnostics$n_steps[idx],
                             divergent__ = as.numeric(diagnostics$diverging[idx]),
                             energy__ = diagnostics$energy[idx])
         attr(samples[[i]], "sampler_params") <- samp_params
